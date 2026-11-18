@@ -4,6 +4,7 @@ import { UseFormRegisterReturn, useForm } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
 import { z } from 'zod';
+import { useDialog } from '../../components/dialog';
 import { Button, Field, Input, Notice, Select, TextArea } from '../../components/ui';
 import { api } from '../../services/api';
 import { Product, RefItem } from '../../types';
@@ -41,6 +42,7 @@ export function ProductFormPage() {
   const [images, setImages] = useState<Product['images']>([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const dialog = useDialog();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -131,7 +133,7 @@ export function ProductFormPage() {
   }
 
   async function removeImage(imageId: string) {
-    if (!id || !window.confirm('Excluir esta imagem?')) return;
+    if (!id || !(await dialog.confirm('Excluir esta imagem?'))) return;
     const { data } = await api.delete<Product>(`/admin/products/${id}/images/${imageId}`);
     setImages(data.images);
   }

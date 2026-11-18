@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import styled from 'styled-components';
+import { useDialog } from '../../components/dialog';
 import { Button, Input, Notice, Select } from '../../components/ui';
 import { api } from '../../services/api';
 import { RefItem } from '../../types';
@@ -24,6 +25,7 @@ export function TaxonomiesPage() {
   const [countries, setCountries] = useState<RefItem[]>([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const dialog = useDialog();
 
   async function load(next = kind) {
     const { data } = await api.get<RefItem[]>(`/admin/taxonomies/${next}`);
@@ -61,7 +63,7 @@ export function TaxonomiesPage() {
   }
 
   async function rename(item: RefItem) {
-    const next = window.prompt('Novo nome', item.name);
+    const next = await dialog.prompt('Novo nome', item.name);
     if (!next || next === item.name) return;
     await api.patch(`/admin/taxonomies/${kind}/${item.id}`, { name: next });
     await load();
@@ -73,7 +75,7 @@ export function TaxonomiesPage() {
   }
 
   async function remove(item: RefItem) {
-    if (!window.confirm(`Excluir ${item.name}?`)) return;
+    if (!(await dialog.confirm(`Excluir ${item.name}?`))) return;
     try {
       await api.delete(`/admin/taxonomies/${kind}/${item.id}`);
       setMessage('Cadastro excluído.');

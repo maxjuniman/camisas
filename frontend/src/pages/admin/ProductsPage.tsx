@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
+import { useDialog } from '../../components/dialog';
 import { Button, Input, Notice, Select } from '../../components/ui';
 import { api } from '../../services/api';
 import { formatPrice } from '../../services/whatsapp';
@@ -21,6 +22,7 @@ export function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const dialog = useDialog();
 
   async function load() {
     const params = Object.fromEntries(
@@ -52,7 +54,7 @@ export function ProductsPage() {
   }
 
   async function remove(product: Product) {
-    if (!window.confirm(`Excluir ${product.name}?`)) return;
+    if (!(await dialog.confirm(`Excluir ${product.name}?`))) return;
     await api.delete(`/admin/products/${product.id}`);
     setMessage('Produto excluído.');
     await load();

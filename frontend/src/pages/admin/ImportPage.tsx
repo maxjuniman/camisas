@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
+import { useDialog } from '../../components/dialog';
 import { Button, Input, Notice, TextArea } from '../../components/ui';
 import { api } from '../../services/api';
 
@@ -56,6 +57,7 @@ export function ImportPage() {
   const [resetting, setResetting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [price, setPrice] = useState('');
+  const dialog = useDialog();
 
   async function load() {
     const [jobRes, itemRes, sourceRes] = await Promise.all([
@@ -99,7 +101,7 @@ export function ImportPage() {
   }
 
   async function reset() {
-    const confirmed = window.confirm(
+    const confirmed = await dialog.confirm(
       'Zerar a importação apaga a fila, o histórico e os itens ainda não publicados. Produtos já aprovados no site permanecem. Continuar?',
     );
     if (!confirmed) return;
@@ -119,15 +121,15 @@ export function ImportPage() {
   async function approveAll() {
     const parsed = price.trim() ? Number(price.replace(',', '.')) : 0;
     if (!Number.isFinite(parsed) || parsed < 0) {
-      setError('Informe um preço válido ou deixe o campo em branco.');
+      await dialog.alert('Informe um preço válido ou deixe o campo em branco.');
       return;
     }
     const ready = items.filter((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE');
     if (!ready.length) {
-      setError('Não há itens prontos para aprovar. Erros e possíveis duplicados continuam na revisão.');
+      await dialog.alert('Não há itens prontos para aprovar. Erros e possíveis duplicados continuam na revisão.');
       return;
     }
-    const confirmed = window.confirm(
+    const confirmed = await dialog.confirm(
       `Aprovar ${ready.length} itens sem abrir a revisão? O nome para o site, os tamanhos e as imagens já coletados serão usados. Erros e possíveis duplicados permanecem pendentes.`,
     );
     if (!confirmed) return;

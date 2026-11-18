@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
+import { useDialog } from '../../components/dialog';
 import { Button, Field, Input, Notice, Select, TextArea } from '../../components/ui';
 import { api } from '../../services/api';
 import { Product, RefItem } from '../../types';
@@ -48,6 +49,7 @@ export function ReviewPage() {
   const [availabilityNote, setAvailabilityNote] = useState('');
   const [orderNote, setOrderNote] = useState('');
   const [error, setError] = useState('');
+  const dialog = useDialog();
 
   useEffect(() => {
     if (!id) return;
@@ -134,7 +136,7 @@ export function ReviewPage() {
   }
 
   async function remove() {
-    if (!id || !window.confirm('Excluir este item encontrado? O produto da loja, se já existir, permanece.')) return;
+    if (!id || !(await dialog.confirm('Excluir este item encontrado? O produto da loja, se já existir, permanece.'))) return;
     await api.delete(`/admin/scraping/items/${id}`);
     navigate('/admin/importacao');
   }

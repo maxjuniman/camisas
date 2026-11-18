@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext';
+import { DialogProvider } from './components/dialog';
 import { PublicLayout } from './components/layout';
 import { CatalogPage } from './pages/CatalogPage';
 import { HomePage } from './pages/HomePage';
@@ -15,6 +16,7 @@ import { TaxonomiesPage } from './pages/admin/TaxonomiesPage';
 
 export function App() {
   return (
+    <DialogProvider>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -36,5 +38,6 @@ export function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </DialogProvider>
   );
 }
