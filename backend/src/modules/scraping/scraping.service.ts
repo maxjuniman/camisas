@@ -57,6 +57,7 @@ export class ScrapingService {
   }
 
   async listItems(reviewStatus?: string) {
+    if (!reviewStatus || reviewStatus === 'PENDING') await this.settleKnownCatalog();
     const items = await this.prisma.scrapedProduct.findMany({
       where: reviewStatus ? { reviewStatus: reviewStatus as 'PENDING' | 'APPROVED' | 'IGNORED' } : undefined,
       include: { images: { orderBy: { sortOrder: 'asc' } }, duplicates: { include: { product: true } }, changes: true },
@@ -500,14 +501,23 @@ export class ScrapingService {
     const changes: { field: string; previousValue: string; nextValue: string }[] = [];
 
     if (byOrigin) {
-      if (normalizeName(byOrigin.name) !== normalized) {
-        changes.push({ field: 'name', previousValue: byOrigin.name, nextValue: name });
+      const previous = await this.prisma.scrapedProduct.findFirst({
+        where: { linkedProductId: byOrigin.id, reviewStatus: 'APPROVED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (previous && normalizeName(previous.rawName) !== normalized) {
+        changes.push({ field: 'name', previousValue: previous.rawName, nextValue: name });
       }
-      if ((byOrigin.description || '') !== (detail.description || '')) {
-        changes.push({ field: 'description', previousValue: byOrigin.description, nextValue: detail.description });
+      if (previous && (previous.rawDescription || '') !== (detail.description || '')) {
+        changes.push({ field: 'description', previousValue: previous.rawDescription, nextValue: detail.description });
       }
-      const known = new Set(byOrigin.images.map((image) => image.sha256).filter(Boolean));
-      const fresh = storedImages.filter((image) => image.sha256 && !known.has(image.sha256));
+      const knownSources = new Set(byOrigin.images.map((image) => image.sourceUrl).filter((url): url is string => Boolean(url)));
+      const knownHashes = new Set(byOrigin.images.map((image) => image.sha256).filter((hash): hash is string => Boolean(hash)));
+      const fresh = storedImages.filter((image) => {
+        if (image.sourceUrl && knownSources.has(image.sourceUrl)) return false;
+        if (image.sha256 && knownHashes.has(image.sha256)) return false;
+        return true;
+      });
       if (fresh.length) {
         changes.push({ field: 'images', previousValue: String(byOrigin.images.length), nextValue: String(fresh.length) });
       }
@@ -539,7 +549,7 @@ export class ScrapingService {
         suggestedSizes: suggestions.sizes,
         coverPerceptualHash: coverHash,
         matchStatus,
-        reviewStatus: 'PENDING',
+        reviewStatus: matchStatus === 'EXISTING' ? 'APPROVED' : 'PENDING',
         linkedProductId,
         images: {
           create: storedImages.map((image, index) => ({
@@ -630,6 +640,38 @@ export class ScrapingService {
       });
     }
     return suspects.slice(0, 5);
+  }
+
+  private async settleKnownCatalog() {
+    const pending = await this.prisma.scrapedProduct.findMany({
+      where: {
+        reviewStatus: 'PENDING',
+        linkedProductId: { not: null },
+        matchStatus: { in: ['EXISTING', 'CHANGED'] },
+      },
+      include: { changes: true, linkedProduct: { select: { name: true, description: true } } },
+    });
+    const ids = pending.filter((item) => this.alreadyInCatalog(item)).map((item) => item.id);
+    if (!ids.length) return;
+    await this.prisma.scrapedProduct.updateMany({
+      where: { id: { in: ids } },
+      data: { reviewStatus: 'APPROVED' },
+    });
+  }
+
+  private alreadyInCatalog(item: {
+    matchStatus: MatchStatus;
+    changes: { field: string; previousValue: string }[];
+    linkedProduct: { name: string; description: string } | null;
+  }) {
+    if (!item.linkedProduct) return false;
+    if (item.matchStatus === 'EXISTING') return true;
+    if (item.matchStatus !== 'CHANGED' || item.changes.some((change) => change.field === 'images')) return false;
+    return item.changes.every((change) => {
+      if (change.field === 'name') return normalizeName(change.previousValue) === normalizeName(item.linkedProduct!.name);
+      if (change.field === 'description') return (change.previousValue || '') === (item.linkedProduct!.description || '');
+      return false;
+    });
   }
 
   private withDisplayName<T extends { rawName: string; displayName: string }>(item: T): T {

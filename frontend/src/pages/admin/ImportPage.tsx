@@ -201,28 +201,34 @@ export function ImportPage() {
       ) : <p>Nenhuma varredura executada.</p>}
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
-      <h2>Pendentes de aprovação</h2>
       {items.length ? (
-        <Approve>
-          <Input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Preço de todos, se quiser" inputMode="decimal" />
-          <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
-        </Approve>
-      ) : <p>Nenhum item pendente.</p>}
-      <List>
-        {items.map((item) => (
-          <li key={item.id}>
-            <div>
-              <strong>{item.displayName || item.rawName}</strong>
-              <small>
-                {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
-                {statusLabel[item.matchStatus] || item.matchStatus}
-                {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
-              </small>
-            </div>
-            <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
-          </li>
-        ))}
-      </List>
+        <>
+          <h2>Pendentes de aprovação</h2>
+          {items.some((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE') ? (
+            <Approve>
+              <Input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Preço de todos, se quiser" inputMode="decimal" />
+              <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
+            </Approve>
+          ) : null}
+          <List>
+            {items.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.displayName || item.rawName}</strong>
+                  <small>
+                    {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
+                    {statusLabel[item.matchStatus] || item.matchStatus}
+                    {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
+                  </small>
+                </div>
+                <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
+              </li>
+            ))}
+          </List>
+        </>
+      ) : (
+        <p>{latest && !active && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
+      )}
       <h2>Importar por links</h2>
       <form onSubmit={importUrls}>
         <TextArea value={urls} onChange={(event) => setUrls(event.target.value)} placeholder="Um link de álbum do Yupoo por linha" />
