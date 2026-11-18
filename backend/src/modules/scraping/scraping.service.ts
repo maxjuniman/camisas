@@ -219,14 +219,14 @@ export class ScrapingService implements OnModuleInit {
     let skipped = 0;
     for (const item of pending) {
       const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
-      if (item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE' || name.length < 2) {
+      if (item.matchStatus === 'ERROR' || name.length < 2) {
         skipped += 1;
         continue;
       }
       ids.push(item.id);
     }
     if (!ids.length) {
-      throw new BadRequestException('Não há itens prontos para aprovar. Erros e possíveis duplicados continuam na revisão.');
+      throw new BadRequestException('Não há itens prontos para aprovar. Os erros continuam na revisão.');
     }
     const job = await this.prisma.approvalJob.create({
       data: {
@@ -327,7 +327,7 @@ export class ScrapingService implements OnModuleInit {
     });
     if (!item || item.reviewStatus === 'IGNORED') return 'skipped';
     if (item.reviewStatus === 'APPROVED') return 'approved';
-    if (item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE') return 'skipped';
+    if (item.matchStatus === 'ERROR') return 'skipped';
     if (item.linkedProductId) {
       await this.copyImages(item.linkedProductId, item.images, item.displayName || item.rawName);
       await this.prisma.scrapedProduct.update({ where: { id: item.id }, data: { reviewStatus: 'APPROVED' } });

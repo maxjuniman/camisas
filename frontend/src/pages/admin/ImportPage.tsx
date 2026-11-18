@@ -158,13 +158,13 @@ export function ImportPage() {
       await dialog.alert('Informe um preço válido ou deixe o campo em branco.');
       return;
     }
-    const ready = items.filter((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE');
+    const ready = items.filter((item) => item.matchStatus !== 'ERROR');
     if (!ready.length) {
-      await dialog.alert('Não há itens prontos para aprovar. Erros e possíveis duplicados continuam na revisão.');
+      await dialog.alert('Não há itens prontos para aprovar. Os erros continuam na revisão.');
       return;
     }
     const confirmed = await dialog.confirm(
-      `Aprovar ${ready.length} itens sem abrir a revisão? A fila publica um por vez e a barra mostra o andamento. Erros e possíveis duplicados permanecem pendentes.`,
+      `Aprovar os itens pendentes sem abrir a revisão? Possíveis duplicados também entram na fila. Os erros continuam na revisão.`,
     );
     if (!confirmed) return;
     setError('');
@@ -306,7 +306,7 @@ export function ImportPage() {
       {!active && !approvingJob && items.length ? (
         <>
           <h2>Pendentes de aprovação</h2>
-          {items.some((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE') ? (
+          {items.some((item) => item.matchStatus !== 'ERROR') ? (
             <Approve>
               <Input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Preço de todos, se quiser" inputMode="decimal" />
               <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
