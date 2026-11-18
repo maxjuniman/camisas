@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -148,4 +149,11 @@ export class AdminProductQueryDto {
   @Type(() => Number)
   @IsNumber()
   page?: number;
+}
+
+export class ReorderImagesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID('4', { each: true })
+  imageIds!: string[];
 }

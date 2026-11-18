@@ -14,7 +14,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminProductQueryDto, PatchFlagsDto, UpsertProductDto } from './dto/product.dto';
+import { AdminProductQueryDto, PatchFlagsDto, ReorderImagesDto, UpsertProductDto } from './dto/product.dto';
 import { ProductsService } from './products.service';
 
 @Controller('admin/products')
@@ -66,6 +66,11 @@ export class ProductsController {
   @Delete(':id/images/:imageId')
   removeImage(@Param('id') id: string, @Param('imageId') imageId: string) {
     return this.products.removeImage(id, imageId);
+  }
+
+  @Patch(':id/images/order')
+  reorder(@Param('id') id: string, @Body() dto: ReorderImagesDto) {
+    return this.products.reorderImages(id, dto.imageIds);
   }
 
   @Patch(':id/images/:imageId/primary')

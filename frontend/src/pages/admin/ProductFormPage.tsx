@@ -138,10 +138,19 @@ export function ProductFormPage() {
     setImages(data.images);
   }
 
-  async function makePrimary(imageId: string) {
+  async function moveImage(index: number, direction: -1 | 1) {
     if (!id) return;
-    const { data } = await api.patch<Product>(`/admin/products/${id}/images/${imageId}/primary`);
-    setImages(data.images);
+    const next = index + direction;
+    if (next < 0 || next >= images.length) return;
+    const order = images.map((image) => image.id);
+    const [moved] = order.splice(index, 1);
+    order.splice(next, 0, moved);
+    try {
+      const { data } = await api.patch<Product>(`/admin/products/${id}/images/order`, { imageIds: order });
+      setImages(data.images);
+    } catch (reason) {
+      await dialog.alert(reason instanceof Error ? reason.message : 'Falha ao ordenar as fotos.');
+    }
   }
 
   return (
@@ -197,11 +206,14 @@ export function ProductFormPage() {
         {error ? <Notice $kind="error">{error}</Notice> : null}
         <Button type="submit">Salvar</Button>
       </Form>
+      {images.length ? <p>A primeira foto é a capa. Use os botões para mudar a ordem.</p> : null}
       <Photos>
-        {images.map((image) => (
+        {images.map((image, index) => (
           <figure key={image.id}>
             <img src={image.thumbUrl || image.url} alt={image.alt} />
-            <button type="button" onClick={() => void makePrimary(image.id)}>{image.isPrimary ? 'Capa' : 'Tornar capa'}</button>
+            <span>{index === 0 ? 'Capa' : `Foto ${index + 1}`}</span>
+            <button type="button" onClick={() => void moveImage(index, -1)} disabled={index === 0}>Mover para antes</button>
+            <button type="button" onClick={() => void moveImage(index, 1)} disabled={index === images.length - 1}>Mover para depois</button>
             <button type="button" onClick={() => void removeImage(image.id)}>Excluir</button>
           </figure>
         ))}
@@ -225,8 +237,10 @@ function Choice({ name, options, register, onPick }: { name: string; options: Re
 const Form = styled.form`display: grid; gap: 12px; max-width: 760px; fieldset { border: 1px solid ${({ theme }) => theme.line}; display: flex; flex-wrap: wrap; gap: 10px; }`;
 const Checks = styled.div`display: flex; flex-wrap: wrap; gap: 14px;`;
 const Photos = styled.div`
-  display: flex; gap: 12px; flex-wrap: wrap;
-  figure { width: 120px; }
-  img { width: 120px; height: 150px; object-fit: cover; }
-  button { display: block; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+  display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px;
+  figure { width: 140px; display: grid; gap: 4px; }
+  img { width: 140px; height: 176px; object-fit: cover; }
+  span { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+  button { background: none; border: 0; padding: 0; text-align: left; text-decoration: underline; cursor: pointer; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; text-decoration: none; }
 `;

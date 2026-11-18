@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ProductStatus } from '@prisma/client';
 import { productInclude, serializeProduct } from '../../common/serialize';
 import { normalizeName, slugify } from '../../common/text';
@@ -130,6 +130,25 @@ export class ProductsService {
       });
       if (next) await this.prisma.productImage.update({ where: { id: next.id }, data: { isPrimary: true } });
     }
+    return this.get(id);
+  }
+
+  async reorderImages(id: string, imageIds: string[]) {
+    const images = await this.prisma.productImage.findMany({ where: { productId: id }, select: { id: true } });
+    if (!images.length) throw new NotFoundException('Este produto não tem fotos.');
+    const known = new Set(images.map((image) => image.id));
+    const unique = new Set(imageIds);
+    if (unique.size !== imageIds.length || imageIds.length !== images.length || imageIds.some((imageId) => !known.has(imageId))) {
+      throw new BadRequestException('A ordem precisa incluir cada foto do produto uma vez.');
+    }
+    await this.prisma.$transaction(
+      imageIds.map((imageId, index) =>
+        this.prisma.productImage.update({
+          where: { id: imageId },
+          data: { sortOrder: index, isPrimary: index === 0 },
+        }),
+      ),
+    );
     return this.get(id);
   }
 

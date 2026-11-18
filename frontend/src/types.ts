@@ -47,8 +47,8 @@ export type Product = {
 };
 
 export function coverOf(product: Product) {
-  const primary = product.images.find((image) => image.isPrimary) ?? product.images[0];
-  return primary ?? null;
+  const ordered = [...product.images].sort((left, right) => left.sortOrder - right.sortOrder);
+  return ordered.find((image) => image.isPrimary) ?? ordered[0] ?? null;
 }
 
 export const statusLabel: Record<Product['status'], string> = {
