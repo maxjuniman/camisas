@@ -37,8 +37,10 @@ export class MediaService {
     await writeFile(join(this.root(), storageKey), buffer);
 
     const pipeline = sharp(buffer).rotate();
-    await pipeline.clone().resize({ width: 1600, withoutEnlargement: true }).webp({ quality: 82 }).toFile(join(derivedDir, `${id}-1600.webp`));
-    await pipeline.clone().resize({ width: 480, withoutEnlargement: true }).webp({ quality: 76 }).toFile(join(derivedDir, `${id}-480.webp`));
+    await Promise.all([
+      pipeline.clone().resize({ width: 1600, withoutEnlargement: true }).webp({ quality: 82 }).toFile(join(derivedDir, `${id}-1600.webp`)),
+      pipeline.clone().resize({ width: 480, withoutEnlargement: true }).webp({ quality: 76 }).toFile(join(derivedDir, `${id}-480.webp`)),
+    ]);
 
     return {
       storageKey,

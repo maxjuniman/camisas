@@ -1,6 +1,6 @@
 import { FormEvent, Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import styled from 'styled-components';
+import styled, { css } from 'styled-components';
 import { useDialog } from '../../components/dialog';
 import { Modal } from '../../components/modal';
 import { Button, Field, Input, Notice } from '../../components/ui';
@@ -53,7 +53,7 @@ const statusLabel: Record<string, string> = {
 export function ImportPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [link, setLink] = useState('https://minkang.x.yupoo.com/categories/680738');
+  const [link, setLink] = useState('');
   const [modal, setModal] = useState<'import' | 'stop' | 'resume' | 'link' | null>(null);
   const [source, setSource] = useState('');
   const [message, setMessage] = useState('');
@@ -79,7 +79,7 @@ export function ImportPage() {
     void load().catch((reason: Error) => setError(reason.message));
     const timer = window.setInterval(() => {
       void load().catch(() => undefined);
-    }, 4000);
+    }, 2000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -238,7 +238,7 @@ export function ImportPage() {
           <form onSubmit={(event) => void importLink(event)}>
             <Field>
               Link do campeonato
-              <Input value={link} onChange={(event) => setLink(event.target.value)} placeholder="https://minkang.x.yupoo.com/categories/680738" />
+              <Input value={link} onChange={(event) => setLink(event.target.value)} placeholder="" />
             </Field>
             <p>O link reúne os times. Cada categoria vira um time, e as camisas dele entram nesse time.</p>
             <Actions>
@@ -250,7 +250,22 @@ export function ImportPage() {
       ) : null}
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
-      {items.length ? (
+      {active ? (
+        <Progress>
+          <p>
+            {active.status === 'PAUSED'
+              ? 'Importação pausada'
+              : active.foundCount
+                ? `Importando ${active.cursor} de ${active.foundCount}`
+                : 'Separando os times'}
+          </p>
+          <Track>
+            <Fill style={{ width: active.foundCount ? `${Math.min(100, Math.round((active.cursor / active.foundCount) * 100))}%` : undefined }} $busy={!active.foundCount} />
+          </Track>
+          <strong>{active.foundCount ? `${Math.min(100, Math.round((active.cursor / active.foundCount) * 100))}%` : '…'}</strong>
+        </Progress>
+      ) : null}
+      {!active && items.length ? (
         <>
           <h2>Pendentes de aprovação</h2>
           {items.some((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE') ? (
@@ -280,9 +295,9 @@ export function ImportPage() {
             </div>
           ))}
         </>
-      ) : (
-        <p>{latest && !active && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
-      )}
+      ) : !active ? (
+        <p>{latest && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
+      ) : null}
       <h2>Histórico</h2>
       {jobs.length ? (
         <table>
@@ -341,6 +356,31 @@ function groupItems(items: Item[]) {
 }
 
 const Actions = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center;`;
+const Progress = styled.div`
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  p, strong { margin: 0; }
+  strong { font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+`;
+const Track = styled.div`
+  height: 12px;
+  background: ${({ theme }) => theme.line};
+  overflow: hidden;
+`;
+const Fill = styled.div<{ $busy?: boolean }>`
+  height: 100%;
+  width: 0;
+  background: ${({ theme }) => theme.accent};
+  ${({ $busy }) => $busy && css`
+    width: 35%;
+    animation: import-slide 1.1s ease-in-out infinite;
+    @keyframes import-slide {
+      from { transform: translateX(-120%); }
+      to { transform: translateX(320%); }
+    }
+  `}
+`;
 const TeamName = styled.h3`margin: 18px 0 0; font-size: 18px;`;
 const Approve = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 520px; input { max-width: 240px; }`;
 const DetailsButton = styled.button`

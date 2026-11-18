@@ -53,7 +53,7 @@ export async function discoverCatalog(categoryUrl: string, canContinue?: () => P
       for (const album of albums) {
         if (!seen.has(album.id)) seen.set(album.id, { ...album, team: team.name });
       }
-      await sleep(800);
+      await sleep(120);
     }
     return { championship: current, albums: [...seen.values()] };
   }
@@ -78,7 +78,7 @@ async function collectAlbums(categoryUrl: string, canContinue?: () => Promise<bo
     const before = seen.size;
     for (const album of found) seen.set(album.id, album);
     if (!found.length || seen.size === before) break;
-    await sleep(800);
+    await sleep(120);
   }
   return [...seen.values()];
 }

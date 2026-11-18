@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { MatchStatus, Prisma, ProductStatus } from '@prisma/client';
 import { hammingHex } from '../../common/phash';
 import { productInclude, serializeProduct } from '../../common/serialize';
@@ -30,11 +30,23 @@ class JobStopped extends Error {
 }
 
 @Injectable()
-export class ScrapingService {
+export class ScrapingService implements OnModuleInit {
   private readonly logger = new Logger(ScrapingService.name);
   private readonly running = new Set<string>();
   private epoch = 0;
   private readonly jobEpoch = new Map<string, number>();
+  private readonly teamNames = new Map<string, string>();
+  private readonly knownSizes = new Set<string>();
+
+  async onModuleInit() {
+    const jobs = await this.prisma.scrapingJob.findMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } } });
+    for (const job of jobs) {
+      if (job.status === 'QUEUED') {
+        await this.prisma.scrapingJob.update({ where: { id: job.id }, data: { status: 'RUNNING' } });
+      }
+      this.launch(job.id, () => this.continuePaused(job.id));
+    }
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -496,11 +508,18 @@ export class ScrapingService {
         data: { status: 'RUNNING', startedAt: new Date(), foundCount: albums.length },
       });
     }
+    const catalog = await this.prisma.product.findMany({
+      select: {
+        id: true,
+        normalizedName: true,
+        images: { select: { perceptualHash: true }, where: { isPrimary: true }, take: 1 },
+      },
+    });
     for (let index = startIndex; index < albums.length; index += 1) {
       if (!(await this.waitIfPaused(jobId))) return;
       const album = albums[index];
       try {
-        await this.ingest(jobId, album, forced, counts);
+        await this.ingest(jobId, album, forced, counts, catalog);
       } catch (error) {
         if (error instanceof JobStopped) return;
         counts.errors += 1;
@@ -526,7 +545,7 @@ export class ScrapingService {
       }
       await this.touch(jobId, albums.length, counts, notes, index + 1);
       if (!(await this.waitIfPaused(jobId))) return;
-      await sleep(900);
+      await sleep(80);
     }
     await this.finish(jobId, counts, notes, 'SUCCEEDED');
   }
@@ -536,6 +555,7 @@ export class ScrapingService {
     album: AlbumRef,
     forced: boolean,
     counts: { created: number; existing: number; changed: number; suspect: number; errors: number },
+    catalog: { id: string; normalizedName: string; images: { perceptualHash: string | null }[] }[],
   ) {
     if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
     const detail = await readAlbum(album.url);
@@ -583,7 +603,7 @@ export class ScrapingService {
       else counts.existing += 1;
     }
 
-    const suspects = byOrigin ? [] : await this.findSuspects(normalized, coverHash);
+    const suspects = byOrigin ? [] : this.findSuspects(normalized, coverHash, catalog);
     if (!byOrigin && suspects.length) {
       matchStatus = 'SUSPECT_DUPLICATE';
       counts.suspect += 1;
@@ -646,45 +666,51 @@ export class ScrapingService {
       thumbUrl: string | null;
       sha256: string | null;
       perceptualHash: string | null;
-    }[] = [];
-    for (const sourceUrl of urls) {
-      if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
-      const previous = existing.find((image) => image.sourceUrl === sourceUrl);
-      if (previous && !forced) {
-        saved.push({
-          sourceUrl,
-          storageKey: previous.storageKey,
-          url: previous.url,
-          thumbUrl: previous.thumbUrl,
-          sha256: previous.sha256,
-          perceptualHash: previous.perceptualHash,
-        });
-        continue;
+    }[] = new Array(urls.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < urls.length) {
+        const index = cursor;
+        cursor += 1;
+        if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
+        const sourceUrl = urls[index];
+        const previous = existing.find((image) => image.sourceUrl === sourceUrl);
+        if (previous && !forced) {
+          saved[index] = {
+            sourceUrl,
+            storageKey: previous.storageKey,
+            url: previous.url,
+            thumbUrl: previous.thumbUrl,
+            sha256: previous.sha256,
+            perceptualHash: previous.perceptualHash,
+          };
+          continue;
+        }
+        try {
+          const bytes = await downloadImage(sourceUrl, referer);
+          const stored = await this.media.save(bytes);
+          saved[index] = { sourceUrl, ...stored };
+        } catch (error) {
+          if (error instanceof SupplierBlockedError || error instanceof JobStopped) throw error;
+          this.logger.warn(`Imagem ignorada: ${sourceUrl}`);
+        }
       }
-      try {
-        const bytes = await downloadImage(sourceUrl, referer);
-        const stored = await this.media.save(bytes);
-        saved.push({ sourceUrl, ...stored });
-      } catch (error) {
-        if (error instanceof SupplierBlockedError) throw error;
-        this.logger.warn(`Imagem ignorada: ${sourceUrl}`);
-      }
-      await sleep(250);
-    }
-    return saved;
+    };
+    const width = Math.min(4, urls.length);
+    await Promise.all(Array.from({ length: width }, () => worker()));
+    return saved.filter((image) => image);
   }
 
-  private async findSuspects(normalized: string, coverHash: string | null) {
-    const products = await this.prisma.product.findMany({
-      select: {
-        id: true,
-        normalizedName: true,
-        images: { select: { perceptualHash: true }, where: { isPrimary: true }, take: 1 },
-      },
-    });
+  private findSuspects(
+    normalized: string,
+    coverHash: string | null,
+    products: { id: string; normalizedName: string; images: { perceptualHash: string | null }[] }[],
+  ) {
+    const words = new Set(normalized.split(' ').filter((word) => word.length >= 4));
     const suspects: { productId: string; reason: 'NAME' | 'IMAGE' | 'BOTH'; score: number }[] = [];
     for (const product of products) {
-      const nameScore = similarity(normalized, product.normalizedName);
+      const sharesWord = product.normalizedName.split(' ').some((word) => word.length >= 4 && words.has(word));
+      const nameScore = sharesWord ? similarity(normalized, product.normalizedName) : 0;
       const hash = product.images[0]?.perceptualHash;
       const distance = coverHash && hash ? hammingHex(coverHash, hash) : 64;
       const nameHit = nameScore >= NAME_THRESHOLD;
@@ -737,6 +763,9 @@ export class ScrapingService {
 
   private async ensureTeam(rawName: string, countryName?: string) {
     const name = publicTeamName(rawName);
+    const cacheKey = `${normalizeName(name)}|${countryName || ''}`;
+    const cached = this.teamNames.get(cacheKey);
+    if (cached) return cached;
     const existing = await this.prisma.team.findMany({
       select: { id: true, name: true, sportId: true, countryId: true },
     });
@@ -750,6 +779,7 @@ export class ScrapingService {
       if (!found.sportId && sport) data.sportId = sport.id;
       if (!found.countryId && country) data.countryId = country.id;
       if (Object.keys(data).length) await this.prisma.team.update({ where: { id: found.id }, data });
+      this.teamNames.set(cacheKey, found.name);
       return found.name;
     }
     let slug = slugify(name);
@@ -761,6 +791,7 @@ export class ScrapingService {
     const created = await this.prisma.team.create({
       data: { name, slug, sportId: sport?.id, countryId: country?.id, sortOrder: existing.length },
     });
+    this.teamNames.set(cacheKey, created.name);
     return created.name;
   }
 
@@ -776,6 +807,8 @@ export class ScrapingService {
   private async ensureSizes(names: string[]) {
     for (const name of names) {
       const slug = slugify(name);
+      if (this.knownSizes.has(slug)) continue;
+      this.knownSizes.add(slug);
       await this.prisma.size.upsert({
         where: { slug },
         update: {},
