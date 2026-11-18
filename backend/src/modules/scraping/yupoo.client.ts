@@ -16,6 +16,13 @@ export type AlbumRef = {
   url: string;
   title: string;
   cover?: string;
+  team?: string;
+  country?: string;
+};
+
+export type CatalogDiscovery = {
+  championship: string;
+  albums: AlbumRef[];
 };
 
 export type AlbumDetail = {
@@ -25,7 +32,42 @@ export type AlbumDetail = {
 };
 
 export async function discoverAlbums(canContinue?: () => Promise<boolean>): Promise<AlbumRef[] | null> {
-  const first = new URL(CATEGORY_URL());
+  return collectAlbums(CATEGORY_URL(), canContinue);
+}
+
+export async function discoverCatalog(categoryUrl: string, canContinue?: () => Promise<boolean>): Promise<CatalogDiscovery | null> {
+  const page = new URL(categoryUrl);
+  const html = await fetchText(page.toString());
+  const currentId = page.pathname.match(/\/categories\/(\d+)/)?.[1] || '';
+  const crumbs = categoryCrumbs(html);
+  const current = crumbs[crumbs.length - 1]?.title || 'Campeonato';
+  const parent = crumbs.length > 1 ? crumbs[crumbs.length - 2].title : '';
+  const teams = sidebarTeams(html, page.origin);
+  const currentIsTeam = teams.some((team) => team.id === currentId);
+  if (!currentIsTeam && teams.length) {
+    const seen = new Map<string, AlbumRef>();
+    for (const team of teams) {
+      if (canContinue && !(await canContinue())) return null;
+      const albums = await collectAlbums(team.url, canContinue);
+      if (!albums) return null;
+      for (const album of albums) {
+        if (!seen.has(album.id)) seen.set(album.id, { ...album, team: team.name });
+      }
+      await sleep(800);
+    }
+    return { championship: current, albums: [...seen.values()] };
+  }
+  const albums = await collectAlbums(page.toString(), canContinue);
+  if (!albums) return null;
+  const team = currentIsTeam ? current : undefined;
+  return {
+    championship: parent || current,
+    albums: albums.map((album) => ({ ...album, team })),
+  };
+}
+
+async function collectAlbums(categoryUrl: string, canContinue?: () => Promise<boolean>): Promise<AlbumRef[] | null> {
+  const first = new URL(categoryUrl);
   const seen = new Map<string, AlbumRef>();
   for (let page = 1; page <= 40; page += 1) {
     if (canContinue && !(await canContinue())) return null;
@@ -82,10 +124,54 @@ export async function downloadImage(url: string, referer: string): Promise<Buffe
   return bytes;
 }
 
+export function isCategoryUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.hostname.endsWith('yupoo.com') && /\/categories\/\d+/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export function albumIdFromUrl(raw: string): AlbumRef | null {
   const album = albumUrl(raw, raw);
   if (!album) return null;
   return { ...album, title: `Álbum ${album.id}` };
+}
+
+function categoryCrumbs(html: string) {
+  const root = parse(html);
+  return root
+    .querySelectorAll('.yupoo-crumbs .yupoo-crumbs-span')
+    .map((item) => ({
+      title: clean(item.getAttribute('title') || item.text),
+      href: item.getAttribute('href') || '',
+    }))
+    .filter((item) => item.title && item.title !== '全部分类');
+}
+
+function sidebarTeams(html: string, origin: string) {
+  const root = parse(html);
+  const box = root.querySelector('.categories__box-right-categories');
+  if (!box) return [];
+  const teams: { id: string; name: string; url: string }[] = [];
+  for (const anchor of box.querySelectorAll('a.categories__box-right-category-item')) {
+    const href = anchor.getAttribute('href') || '';
+    let url: URL;
+    try {
+      url = new URL(href, origin);
+    } catch {
+      continue;
+    }
+    const id = url.pathname.match(/\/categories\/(\d+)/)?.[1];
+    if (!id || id === '0') continue;
+    const name = clean(anchor.getAttribute('title') || anchor.text);
+    if (!name || teams.some((team) => team.id === id)) continue;
+    if (!url.searchParams.has('isSubCate')) url.searchParams.set('isSubCate', 'true');
+    url.hash = '';
+    teams.push({ id, name, url: url.toString() });
+  }
+  return teams;
 }
 
 function parseCategory(html: string, origin: string): AlbumRef[] {

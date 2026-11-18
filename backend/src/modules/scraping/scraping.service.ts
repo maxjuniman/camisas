@@ -5,7 +5,7 @@ import { productInclude, serializeProduct } from '../../common/serialize';
 import { normalizeName, similarity, slugify } from '../../common/text';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
-import { friendlyName, parseSizeNames, sizeSortOrder } from './catalog-name';
+import { countryFromChampionship, friendlyName, parseSizeNames, publicTeamName, sizeSortOrder } from './catalog-name';
 import { ImportUrlsDto, ReviewDto } from './dto/scraping.dto';
 import {
   AlbumRef,
@@ -13,6 +13,8 @@ import {
   SupplierBlockedError,
   albumIdFromUrl,
   discoverAlbums,
+  isCategoryUrl,
+  discoverCatalog,
   downloadImage,
   readAlbum,
 } from './yupoo.client';
@@ -95,11 +97,29 @@ export class ScrapingService {
   }
 
   async importUrls(dto: ImportUrlsDto, userId: string) {
-    const albums = dto.urls.map((url) => {
+    const single = dto.url?.trim();
+    if (single) {
+      if (isCategoryUrl(single)) {
+        const job = await this.openJob(false, single, userId);
+        this.launch(job.id, () => this.runCategory(job.id, single, false));
+        return job;
+      }
+      const album = albumIdFromUrl(single);
+      if (!album) throw new BadRequestException('Informe o link de um campeonato ou de um álbum do Yupoo.');
+      const job = await this.openJob(false, single, userId);
+      await this.prisma.scrapingJob.update({
+        where: { id: job.id },
+        data: { queue: [album] as unknown as Prisma.InputJsonValue, foundCount: 1, cursor: 0 },
+      });
+      this.launch(job.id, () => this.runAlbums(job.id, [album], false, true));
+      return job;
+    }
+    const albums = (dto.urls || []).map((url) => {
       const parsed = albumIdFromUrl(url);
       if (!parsed) throw new BadRequestException('Informe apenas links de álbuns do Yupoo.');
       return parsed;
     });
+    if (!albums.length) throw new BadRequestException('Informe o link do campeonato.');
     const job = await this.openJob(true, 'importacao-manual', userId);
     await this.prisma.scrapingJob.update({
       where: { id: job.id },
@@ -384,6 +404,37 @@ export class ScrapingService {
     }
   }
 
+  private async runCategory(jobId: string, url: string, forced: boolean) {
+    if (!(await this.waitIfPaused(jobId))) return;
+    await this.prisma.scrapingJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'RUNNING',
+        startedAt: new Date(),
+        queue: { mode: 'category', url } as Prisma.InputJsonValue,
+      },
+    });
+    const catalog = await discoverCatalog(url, () => this.waitIfPaused(jobId));
+    if (!catalog) return;
+    if (!catalog.albums.length) {
+      await this.finish(jobId, { created: 0, existing: 0, changed: 0, suspect: 0, errors: 0 }, ['Nenhuma camisa encontrada nesse link.'], 'FAILED');
+      return;
+    }
+    const country = countryFromChampionship(catalog.championship);
+    const albums = catalog.albums.map((album) => ({ ...album, country }));
+    const names = [...new Set(albums.map((album) => album.team).filter((team): team is string => Boolean(team)))];
+    const canonical = new Map<string, string>();
+    for (const name of names) canonical.set(name, await this.ensureTeam(name, country));
+    for (const album of albums) {
+      if (album.team) album.team = canonical.get(album.team) || album.team;
+    }
+    await this.prisma.scrapingJob.update({
+      where: { id: jobId },
+      data: { queue: albums as unknown as Prisma.InputJsonValue, foundCount: albums.length, cursor: 0 },
+    });
+    await this.runAlbums(jobId, albums, forced, true);
+  }
+
   private async runDiscovered(jobId: string, forced: boolean) {
     if (!(await this.waitIfPaused(jobId))) return;
     await this.prisma.scrapingJob.update({
@@ -404,6 +455,11 @@ export class ScrapingService {
     if (!job || job.status !== 'RUNNING') return;
     const stored = this.readQueue(job.queue);
     if (!stored) {
+      const category = this.readCategory(job.queue);
+      if (category) {
+        await this.runCategory(jobId, category, job.forced);
+        return;
+      }
       await this.runDiscovered(jobId, job.forced);
       return;
     }
@@ -495,6 +551,7 @@ export class ScrapingService {
     const sizeNames = parseSizeNames(name);
     await this.ensureSizes(sizeNames);
     const suggestions = await this.suggest(name, sizeNames);
+    if (album.team) suggestions.team = await this.ensureTeam(album.team, album.country);
 
     let matchStatus: MatchStatus = 'NEW';
     let linkedProductId: string | null = byOrigin?.id ?? null;
@@ -678,6 +735,44 @@ export class ScrapingService {
     return { ...item, displayName: item.displayName || friendlyName(item.rawName) };
   }
 
+  private async ensureTeam(rawName: string, countryName?: string) {
+    const name = publicTeamName(rawName);
+    const existing = await this.prisma.team.findMany({
+      select: { id: true, name: true, sportId: true, countryId: true },
+    });
+    const found = existing.find(
+      (team) => normalizeName(team.name) === normalizeName(name) || normalizeName(team.name) === normalizeName(rawName),
+    );
+    const sport = await this.prisma.sport.findFirst({ where: { slug: 'futebol', isActive: true } });
+    const country = countryName ? await this.ensureCountry(countryName) : null;
+    if (found) {
+      const data: { sportId?: string; countryId?: string } = {};
+      if (!found.sportId && sport) data.sportId = sport.id;
+      if (!found.countryId && country) data.countryId = country.id;
+      if (Object.keys(data).length) await this.prisma.team.update({ where: { id: found.id }, data });
+      return found.name;
+    }
+    let slug = slugify(name);
+    let index = 2;
+    while (await this.prisma.team.findUnique({ where: { slug } })) {
+      slug = `${slugify(name)}-${index}`;
+      index += 1;
+    }
+    const created = await this.prisma.team.create({
+      data: { name, slug, sportId: sport?.id, countryId: country?.id, sortOrder: existing.length },
+    });
+    return created.name;
+  }
+
+  private async ensureCountry(name: string) {
+    const slug = slugify(name);
+    return this.prisma.country.upsert({
+      where: { slug },
+      update: {},
+      create: { name, slug },
+    });
+  }
+
   private async ensureSizes(names: string[]) {
     for (const name of names) {
       const slug = slugify(name);
@@ -757,6 +852,13 @@ export class ScrapingService {
     }
   }
 
+  private readCategory(value: Prisma.JsonValue | null) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const row = value as Record<string, unknown>;
+    if (row.mode !== 'category' || typeof row.url !== 'string' || !isCategoryUrl(row.url)) return null;
+    return row.url;
+  }
+
   private readQueue(value: Prisma.JsonValue | null): AlbumRef[] | null {
     if (!Array.isArray(value) || value.length === 0) return null;
     const albums: AlbumRef[] = [];
@@ -769,6 +871,8 @@ export class ScrapingService {
         url: row.url,
         title: row.title,
         cover: typeof row.cover === 'string' ? row.cover : undefined,
+        team: typeof row.team === 'string' ? row.team : undefined,
+        country: typeof row.country === 'string' ? row.country : undefined,
       });
     }
     return albums;

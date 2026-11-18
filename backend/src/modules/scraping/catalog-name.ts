@@ -1,5 +1,68 @@
 const ADULT_SIZES = ['P', 'M', 'G', 'GG', 'XG', '3G', '4G'];
 
+const KNOWN_TEAMS = [
+  'Red Bull Bragantino',
+  'Atlético Paranaense',
+  'Atlético Mineiro',
+  'Atlético Juventus',
+  'Vasco da Gama',
+  'Sport Recife',
+  'São Paulo',
+  'Santa Cruz',
+  'Chapecoense',
+  'Corinthians',
+  'Internacional',
+  'Fluminense',
+  'Palmeiras',
+  'Botafogo',
+  'Fortaleza',
+  'Confiança',
+  'Coritiba',
+  'Cruzeiro',
+  'Flamengo',
+  'Santos',
+  'Grêmio',
+  'Náutico',
+  'Cuiabá',
+  'Vitória',
+  'Ceará',
+  'Bahia',
+  'Paysandu',
+  'Remo',
+];
+
+export function publicTeamName(raw: string): string {
+  const normalized = raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+  const known = [...KNOWN_TEAMS].sort((a, b) => b.length - a.length).find((name) => {
+    const key = name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    return normalized === key || normalized.startsWith(`${key} `);
+  });
+  return known || raw.replace(/\s+/g, ' ').trim();
+}
+
+export function countryFromChampionship(title: string): string | undefined {
+  const normalized = title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (normalized.includes('brasileir')) return 'Brasil';
+  if (normalized.includes('la liga') || normalized.includes('laliga')) return 'Espanha';
+  if (normalized.includes('premier')) return 'Inglaterra';
+  if (/\bnba\b|basquete|basket/.test(normalized)) return 'EUA';
+  return undefined;
+}
+
 export function friendlyName(raw: string): string {
   let text = raw
     .replace(/&#x27;|&#39;|&apos;/gi, "'")

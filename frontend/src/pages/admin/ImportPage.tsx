@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { useDialog } from '../../components/dialog';
-import { Button, Input, Notice, TextArea } from '../../components/ui';
+import { Modal } from '../../components/modal';
+import { Button, Field, Input, Notice } from '../../components/ui';
 import { api } from '../../services/api';
 
 type Job = {
@@ -26,6 +27,7 @@ type Item = {
   rawName: string;
   displayName: string;
   suggestedSizes: string | null;
+  suggestedTeam: string | null;
   matchStatus: string;
   reviewStatus: string;
   sourceUrl: string;
@@ -50,7 +52,8 @@ const statusLabel: Record<string, string> = {
 export function ImportPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [urls, setUrls] = useState('');
+  const [link, setLink] = useState('https://minkang.x.yupoo.com/categories/680738');
+  const [modal, setModal] = useState<'import' | 'stop' | 'resume' | 'link' | null>(null);
   const [source, setSource] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -82,10 +85,11 @@ export function ImportPage() {
     setError('');
     try {
       await api.post(`/admin/scraping/jobs/${id}/pause`);
-      setMessage('Importação pausada. O álbum em leitura termina e a fila fica parada.');
+      setModal(null);
+      setMessage('Importação parada. A camisa em leitura termina e a fila fica parada.');
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Falha ao pausar.');
+      setError(reason instanceof Error ? reason.message : 'Falha ao parar.');
     }
   }
 
@@ -93,6 +97,7 @@ export function ImportPage() {
     setError('');
     try {
       await api.post(`/admin/scraping/jobs/${id}/resume`);
+      setModal(null);
       setMessage('Importação retomada.');
       await load();
     } catch (reason) {
@@ -152,23 +157,32 @@ export function ImportPage() {
     setError('');
     try {
       await api.post('/admin/scraping/jobs', { forced });
+      setModal(null);
       setMessage(forced ? 'Nova varredura forçada iniciada.' : 'Varredura iniciada.');
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Falha ao iniciar.');
+      const text = reason instanceof Error ? reason.message : 'Falha ao iniciar.';
+      setError(text);
+      await dialog.alert(text);
     }
   }
 
-  async function importUrls(event: FormEvent) {
+  async function importLink(event: FormEvent) {
     event.preventDefault();
-    const list = urls.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+    const url = link.trim();
+    if (!url) {
+      await dialog.alert('Informe o link do campeonato.');
+      return;
+    }
     try {
-      await api.post('/admin/scraping/import', { urls: list });
-      setUrls('');
-      setMessage('Importação por links iniciada.');
+      await api.post('/admin/scraping/import', { url });
+      setModal(null);
+      setMessage('Importação do campeonato iniciada. As camisas entram separadas por time.');
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Falha na importação.');
+      const text = reason instanceof Error ? reason.message : 'Falha na importação.';
+      setError(text);
+      await dialog.alert(text);
     }
   }
 
@@ -179,16 +193,59 @@ export function ImportPage() {
     <section>
       <h1>Importação de produtos</h1>
       <Actions>
-        <Button type="button" onClick={() => void start(false)} disabled={Boolean(active)}>Iniciar varredura</Button>
-        <Button type="button" $tone="ink" onClick={() => void start(true)} disabled={Boolean(active)}>Forçar nova varredura</Button>
+        <Button type="button" onClick={() => setModal('import')} disabled={Boolean(active)}>Importar</Button>
+        <Button type="button" $tone="ink" onClick={() => setModal('link')} disabled={Boolean(active)}>Importar por link</Button>
         {active && active.status !== 'PAUSED' ? (
-          <Button type="button" $tone="ghost" onClick={() => void pause(active.id)}>Pausar importação</Button>
+          <Button type="button" $tone="ghost" onClick={() => setModal('stop')}>Parar</Button>
         ) : null}
         {active?.status === 'PAUSED' ? (
-          <Button type="button" onClick={() => void resume(active.id)}>Retomar importação</Button>
+          <Button type="button" onClick={() => setModal('resume')}>Retomar</Button>
         ) : null}
         <Button type="button" $tone="ghost" onClick={() => void reset()} disabled={resetting}>Zerar importação</Button>
       </Actions>
+      {modal === 'import' ? (
+        <Modal title="Importar" onClose={() => setModal(null)}>
+          <p>A varredura lê o grupo já configurado{source ? `: ${source}` : ''}.</p>
+          <Actions>
+            <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+            <Button type="button" $tone="ink" onClick={() => void start(true)}>Forçar</Button>
+            <Button type="button" onClick={() => void start(false)}>Iniciar</Button>
+          </Actions>
+        </Modal>
+      ) : null}
+      {modal === 'stop' && active ? (
+        <Modal title="Parar" onClose={() => setModal(null)}>
+          <p>A camisa em leitura termina e a fila fica parada. Dá para retomar depois.</p>
+          <Actions>
+            <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+            <Button type="button" onClick={() => void pause(active.id)}>Parar importação</Button>
+          </Actions>
+        </Modal>
+      ) : null}
+      {modal === 'resume' && active ? (
+        <Modal title="Retomar" onClose={() => setModal(null)}>
+          <p>A importação continua de onde parou.</p>
+          <Actions>
+            <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+            <Button type="button" onClick={() => void resume(active.id)}>Retomar importação</Button>
+          </Actions>
+        </Modal>
+      ) : null}
+      {modal === 'link' ? (
+        <Modal title="Importar por link" onClose={() => setModal(null)}>
+          <form onSubmit={(event) => void importLink(event)}>
+            <Field>
+              Link do campeonato
+              <Input value={link} onChange={(event) => setLink(event.target.value)} placeholder="https://minkang.x.yupoo.com/categories/680738" />
+            </Field>
+            <p>O link reúne os times. Cada categoria vira um time, e as camisas dele entram nesse time.</p>
+            <Actions>
+              <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+              <Button type="submit">Importar</Button>
+            </Actions>
+          </form>
+        </Modal>
+      ) : null}
       {source ? <p>Próxima varredura: {source}</p> : null}
       {latest ? (
         <Summary>
@@ -210,30 +267,30 @@ export function ImportPage() {
               <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
             </Approve>
           ) : null}
-          <List>
-            {items.map((item) => (
-              <li key={item.id}>
-                <div>
-                  <strong>{item.displayName || item.rawName}</strong>
-                  <small>
-                    {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
-                    {statusLabel[item.matchStatus] || item.matchStatus}
-                    {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
-                  </small>
-                </div>
-                <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
-              </li>
-            ))}
-          </List>
+          {groupItems(items).map(([team, group]) => (
+            <div key={team}>
+              {team !== 'Sem time' ? <TeamName>{team}</TeamName> : null}
+              <List>
+                {group.map((item) => (
+                  <li key={item.id}>
+                    <div>
+                      <strong>{item.displayName || item.rawName}</strong>
+                      <small>
+                        {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
+                        {statusLabel[item.matchStatus] || item.matchStatus}
+                        {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
+                      </small>
+                    </div>
+                    <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
+                  </li>
+                ))}
+              </List>
+            </div>
+          ))}
         </>
       ) : (
         <p>{latest && !active && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
       )}
-      <h2>Importar por links</h2>
-      <form onSubmit={importUrls}>
-        <TextArea value={urls} onChange={(event) => setUrls(event.target.value)} placeholder="Um link de álbum do Yupoo por linha" />
-        <Button type="submit" $tone="ink">Importar links</Button>
-      </form>
       <h2>Histórico</h2>
       <table>
         <thead>
@@ -257,7 +314,19 @@ export function ImportPage() {
   );
 }
 
-const Actions = styled.div`display: flex; gap: 8px; flex-wrap: wrap;`;
+function groupItems(items: Item[]) {
+  const groups = new Map<string, Item[]>();
+  for (const item of items) {
+    const key = item.suggestedTeam?.trim() || 'Sem time';
+    const list = groups.get(key) || [];
+    list.push(item);
+    groups.set(key, list);
+  }
+  return [...groups.entries()].sort((left, right) => left[0].localeCompare(right[0], 'pt-BR'));
+}
+
+const Actions = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center;`;
+const TeamName = styled.h3`margin: 18px 0 0; font-size: 18px;`;
 const Approve = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 520px; input { max-width: 240px; }`;
 const Summary = styled.div`
   border: 1px solid ${({ theme }) => theme.line};

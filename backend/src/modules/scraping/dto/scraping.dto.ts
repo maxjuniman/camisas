@@ -30,10 +30,15 @@ export class StartJobDto {
 }
 
 export class ImportUrlsDto {
+  @IsOptional()
+  @IsUrl({ require_protocol: true })
+  url?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(40)
   @IsUrl({ require_protocol: true }, { each: true })
-  urls!: string[];
+  urls?: string[];
 }
 
 export class ReviewDto {
