@@ -5,14 +5,25 @@ import { ProductCard } from '../components/ProductCard';
 import { Grid, SectionTitle, Wrap } from '../components/ui';
 import { storeConfig } from '../config/store';
 import { api } from '../services/api';
-import { Product, RefItem } from '../types';
+import { Product } from '../types';
+
+type Division = {
+  id: string;
+  name: string;
+  slug: string;
+  countries: {
+    id: string;
+    name: string;
+    slug: string;
+    teams: { id: string; name: string; slug: string }[];
+  }[];
+};
 
 type HomeData = {
   featured: Product[];
   launches: Product[];
   recent: Product[];
-  sports: (RefItem & { count: number })[];
-  teams: (RefItem & { count: number })[];
+  divisions: Division[];
 };
 
 export function HomePage() {
@@ -58,23 +69,25 @@ export function HomePage() {
           <Grid>{data?.launches.map((product) => <ProductCard key={product.id} product={product} />)}</Grid>
         </Block>
         <Block>
-          <SectionTitle>Por esporte</SectionTitle>
-          <SportList>
-            {(data?.sports.length ? data.sports : [{ id: 'futebol', name: 'Futebol', slug: 'futebol', count: 0 }, { id: 'basquete', name: 'Basquete', slug: 'basquete', count: 0 }]).map((sport) => (
-              <SportLink key={sport.id} to={`/catalogo?sports=${sport.slug}`}>
-                <span>{sport.name}</span>
-                <small>{sport.count}</small>
-              </SportLink>
+          <SectionTitle>Esporte, país e time</SectionTitle>
+          {data && data.divisions.every((sport) => sport.countries.length === 0) ? <Quiet>Os times aparecem aqui quando tiverem esporte e país.</Quiet> : null}
+          <DivisionList>
+            {data?.divisions.filter((sport) => sport.countries.length).map((sport) => (
+              <div key={sport.id}>
+                <SportLink to={`/catalogo?sports=${sport.slug}`}>{sport.name}</SportLink>
+                {sport.countries.map((country) => (
+                  <Country key={country.id}>
+                    <Link to={`/catalogo?sports=${sport.slug}&countries=${country.slug}`}>{country.name}</Link>
+                    <TeamRow>
+                      {country.teams.map((team) => (
+                        <Link key={team.id} to={`/catalogo?sports=${sport.slug}&countries=${country.slug}&teams=${team.slug}`}>{team.name}</Link>
+                      ))}
+                    </TeamRow>
+                  </Country>
+                ))}
+              </div>
             ))}
-          </SportList>
-        </Block>
-        <Block>
-          <SectionTitle>Por time</SectionTitle>
-          <TeamRow>
-            {data?.teams.length ? data.teams.map((team) => (
-              <Link key={team.id} to={`/catalogo?teams=${team.slug}`}>{team.name}</Link>
-            )) : <Quiet>Os times com camisas publicadas entram nesta lista.</Quiet>}
-          </TeamRow>
+          </DivisionList>
         </Block>
         <Block>
           <SectionTitle>Recém-adicionados</SectionTitle>
@@ -133,18 +146,21 @@ const Jersey = styled.div`
 `;
 const Block = styled.section`margin-top: 56px; display: grid; gap: 18px;`;
 const EmptyNote = styled.p`color: ${({ theme }) => theme.muted};`;
-const SportList = styled.div`display: grid;`;
+const DivisionList = styled.div`display: grid; gap: 28px;`;
 const SportLink = styled(Link)`
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  display: block;
   border-top: 1px solid ${({ theme }) => theme.line};
-  padding: 14px 0;
+  padding: 14px 0 8px;
   font-family: ${({ theme }) => theme.display};
   font-size: 40px;
   text-transform: uppercase;
   &:hover { color: ${({ theme }) => theme.accent}; }
-  small { font-family: ${({ theme }) => theme.body}; font-size: 14px; color: ${({ theme }) => theme.muted}; }
+`;
+const Country = styled.div`
+  display: grid;
+  gap: 8px;
+  padding: 8px 0 8px 12px;
+  > a { font-size: 18px; text-transform: uppercase; letter-spacing: 0.08em; }
 `;
 const TeamRow = styled.div`
   display: flex;

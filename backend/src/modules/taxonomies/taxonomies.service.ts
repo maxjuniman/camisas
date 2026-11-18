@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { slugify } from '../../common/text';
 import { PatchTaxonomyDto, UpsertTaxonomyDto } from './dto/taxonomy.dto';
 
-const kinds = ['teams', 'sports', 'genders', 'categories', 'seasons', 'sizes'] as const;
+const kinds = ['teams', 'sports', 'countries', 'genders', 'categories', 'seasons', 'sizes'] as const;
 export type TaxonomyKind = (typeof kinds)[number];
 
 @Injectable()
@@ -12,20 +12,31 @@ export class TaxonomiesService {
 
   async list(kind: TaxonomyKind) {
     this.assertKind(kind);
+    if (kind === 'teams') {
+      return this.prisma.team.findMany({
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        include: { sport: true, country: true },
+      });
+    }
     return this.delegate(kind).findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
   }
 
   async create(kind: TaxonomyKind, dto: UpsertTaxonomyDto) {
     this.assertKind(kind);
     const slug = await this.uniqueSlug(kind, dto.name);
-    return this.delegate(kind).create({
-      data: {
-        name: dto.name.trim(),
-        slug,
-        isActive: dto.isActive ?? true,
-        sortOrder: dto.sortOrder ?? 0,
-      },
-    });
+    const data = {
+      name: dto.name.trim(),
+      slug,
+      isActive: dto.isActive ?? true,
+      sortOrder: dto.sortOrder ?? 0,
+    };
+    if (kind === 'teams') {
+      return this.prisma.team.create({
+        data: { ...data, sportId: dto.sportId ?? null, countryId: dto.countryId ?? null },
+        include: { sport: true, country: true },
+      });
+    }
+    return this.delegate(kind).create({ data });
   }
 
   async update(kind: TaxonomyKind, id: string, dto: PatchTaxonomyDto) {
@@ -34,15 +45,24 @@ export class TaxonomiesService {
     if (!current) throw new NotFoundException('Registro não encontrado.');
     const name = dto.name?.trim() || current.name;
     const slug = name === current.name ? current.slug : await this.uniqueSlug(kind, name, id);
-    return this.delegate(kind).update({
-      where: { id },
-      data: {
-        name,
-        slug,
-        isActive: dto.isActive ?? current.isActive,
-        sortOrder: dto.sortOrder ?? current.sortOrder,
-      },
-    });
+    const data = {
+      name,
+      slug,
+      isActive: dto.isActive ?? current.isActive,
+      sortOrder: dto.sortOrder ?? current.sortOrder,
+    };
+    if (kind === 'teams') {
+      return this.prisma.team.update({
+        where: { id },
+        data: {
+          ...data,
+          ...(dto.sportId !== undefined ? { sportId: dto.sportId } : {}),
+          ...(dto.countryId !== undefined ? { countryId: dto.countryId } : {}),
+        },
+        include: { sport: true, country: true },
+      });
+    }
+    return this.delegate(kind).update({ where: { id }, data });
   }
 
   async remove(kind: TaxonomyKind, id: string) {
@@ -73,6 +93,7 @@ export class TaxonomiesService {
     const map = {
       teams: this.prisma.team,
       sports: this.prisma.sport,
+      countries: this.prisma.country,
       genders: this.prisma.gender,
       categories: this.prisma.category,
       seasons: this.prisma.season,
@@ -83,13 +104,26 @@ export class TaxonomiesService {
 
   private async linkedCount(kind: TaxonomyKind, id: string) {
     if (kind === 'sizes') return this.prisma.productSize.count({ where: { sizeId: id } });
+    if (kind === 'countries') {
+      const [products, teams] = await Promise.all([
+        this.prisma.product.count({ where: { countryId: id } }),
+        this.prisma.team.count({ where: { countryId: id } }),
+      ]);
+      return products + teams;
+    }
+    if (kind === 'sports') {
+      const [products, teams] = await Promise.all([
+        this.prisma.product.count({ where: { sportId: id } }),
+        this.prisma.team.count({ where: { sportId: id } }),
+      ]);
+      return products + teams;
+    }
     const field = {
       teams: 'teamId',
-      sports: 'sportId',
       genders: 'genderId',
       categories: 'categoryId',
       seasons: 'seasonId',
-    }[kind];
+    }[kind as 'teams' | 'genders' | 'categories' | 'seasons'];
     return this.prisma.product.count({ where: { [field]: id } });
   }
 

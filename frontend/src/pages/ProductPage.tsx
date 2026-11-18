@@ -47,11 +47,13 @@ export function ProductPage() {
           </Thumbs>
         </Gallery>
         <Info id="encomenda">
-          <p>{[product.team?.name, product.season?.name].filter(Boolean).join(' · ')}</p>
+          <p>{[product.sport?.name, product.country?.name, product.team?.name].filter(Boolean).join(' · ')}</p>
           <h1>{product.name}</h1>
           <Price>{formatPrice(product.price)}</Price>
           <Facts>
             <div><span>Esporte</span><strong>{product.sport?.name || '—'}</strong></div>
+            <div><span>País</span><strong>{product.country?.name || '—'}</strong></div>
+            <div><span>Time</span><strong>{product.team?.name || '—'}</strong></div>
             <div><span>Categoria</span><strong>{product.category?.name || '—'}</strong></div>
             <div><span>Sexo</span><strong>{product.gender?.name || '—'}</strong></div>
             <div><span>Temporada</span><strong>{product.season?.name || '—'}</strong></div>

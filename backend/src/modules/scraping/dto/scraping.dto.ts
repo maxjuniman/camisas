@@ -60,6 +60,11 @@ export class ReviewDto {
   @IsOptional()
   @Transform(emptyToNull)
   @IsUUID()
+  countryId?: string;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @IsUUID()
   genderId?: string;
 
   @IsOptional()

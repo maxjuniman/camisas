@@ -23,7 +23,7 @@ type ReviewItem = {
   linkedProduct: Product | null;
 };
 
-type Lists = Record<'teams' | 'sports' | 'genders' | 'categories' | 'seasons' | 'sizes', RefItem[]>;
+type Lists = Record<'teams' | 'sports' | 'countries' | 'genders' | 'categories' | 'seasons' | 'sizes', RefItem[]>;
 
 export function ReviewPage() {
   const { id } = useParams();
@@ -35,6 +35,7 @@ export function ReviewPage() {
   const [price, setPrice] = useState('0');
   const [teamId, setTeamId] = useState('');
   const [sportId, setSportId] = useState('');
+  const [countryId, setCountryId] = useState('');
   const [genderId, setGenderId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [seasonId, setSeasonId] = useState('');
@@ -54,15 +55,17 @@ export function ReviewPage() {
       api.get<ReviewItem>(`/admin/scraping/items/${id}`),
       api.get<RefItem[]>('/admin/taxonomies/teams'),
       api.get<RefItem[]>('/admin/taxonomies/sports'),
+      api.get<RefItem[]>('/admin/taxonomies/countries'),
       api.get<RefItem[]>('/admin/taxonomies/genders'),
       api.get<RefItem[]>('/admin/taxonomies/categories'),
       api.get<RefItem[]>('/admin/taxonomies/seasons'),
       api.get<RefItem[]>('/admin/taxonomies/sizes'),
-    ]).then(([itemRes, teams, sports, genders, categories, seasons, sizes]) => {
+    ]).then(([itemRes, teams, sports, countries, genders, categories, seasons, sizes]) => {
       const current = itemRes.data;
       const nextLists = {
         teams: teams.data,
         sports: sports.data,
+        countries: countries.data,
         genders: genders.data,
         categories: categories.data,
         seasons: seasons.data,
@@ -74,8 +77,11 @@ export function ReviewPage() {
       setName(product?.name || current.displayName || current.rawName);
       setDescription(product?.description || current.rawDescription);
       setPrice(String(product?.price ?? 0));
-      setTeamId(product?.team?.id || matchName(nextLists.teams, current.suggestedTeam));
-      setSportId(product?.sport?.id || nextLists.sports.find((sport) => sport.slug === 'futebol')?.id || '');
+      const matchedTeamId = product?.team?.id || matchName(nextLists.teams, current.suggestedTeam);
+      const matchedTeam = nextLists.teams.find((team) => team.id === matchedTeamId);
+      setTeamId(matchedTeamId);
+      setSportId(product?.sport?.id || matchedTeam?.sportId || nextLists.sports.find((sport) => sport.slug === 'futebol')?.id || '');
+      setCountryId(product?.country?.id || matchedTeam?.countryId || '');
       setGenderId(product?.gender?.id || matchName(nextLists.genders, current.suggestedGender));
       setCategoryId(product?.category?.id || matchName(nextLists.categories, current.suggestedCategory));
       setSeasonId(product?.season?.id || matchSeason(nextLists.seasons, current.rawName));
@@ -102,6 +108,7 @@ export function ReviewPage() {
         price: Number(price),
         teamId: teamId || null,
         sportId: sportId || null,
+        countryId: countryId || null,
         genderId: genderId || null,
         categoryId: categoryId || null,
         seasonId: seasonId || null,
@@ -132,6 +139,13 @@ export function ReviewPage() {
     navigate('/admin/importacao');
   }
 
+  function chooseTeam(value: string) {
+    setTeamId(value);
+    const team = lists?.teams.find((entry) => entry.id === value);
+    if (team?.sportId) setSportId(team.sportId);
+    if (team?.countryId) setCountryId(team.countryId);
+  }
+
   if (!item || !lists) return <p>{error || 'Carregando...'}</p>;
 
   return (
@@ -160,19 +174,20 @@ export function ReviewPage() {
       ) : null}
       <Form onSubmit={approve}>
         <Field>
-          Nome do fornecedor
+          Nome original
           <Input value={item.rawName} readOnly />
         </Field>
         <Field>
-          Nome no site
+          Nome para o site
           <Input value={name} onChange={(event) => setName(event.target.value)} required />
         </Field>
-        <p>O nome no site é o que aparece no catálogo público. O nome do fornecedor fica só nesta revisão.</p>
-        <Button type="button" $tone="ghost" onClick={() => setName(item.rawName)}>Usar nome do fornecedor</Button>
+        <p>O nome original vem do fornecedor. O nome para o site é o que aparece no catálogo público.</p>
+        <Button type="button" $tone="ghost" onClick={() => setName(item.rawName)}>Usar nome original</Button>
         <Field>Descrição<TextArea value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
         <Field>Preço<Input type="number" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} /></Field>
-        <SelectField label="Time" value={teamId} setValue={setTeamId} options={lists.teams} />
         <SelectField label="Esporte" value={sportId} setValue={setSportId} options={lists.sports} />
+        <SelectField label="País" value={countryId} setValue={setCountryId} options={lists.countries} />
+        <SelectField label="Time" value={teamId} setValue={(value) => chooseTeam(value)} options={lists.teams} />
         <SelectField label="Sexo" value={genderId} setValue={setGenderId} options={lists.genders} />
         <SelectField label="Categoria" value={categoryId} setValue={setCategoryId} options={lists.categories} />
         <SelectField label="Temporada" value={seasonId} setValue={setSeasonId} options={lists.seasons} />

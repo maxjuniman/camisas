@@ -41,6 +41,11 @@ export class UpsertProductDto {
   @IsOptional()
   @Transform(emptyToNull)
   @IsUUID()
+  countryId?: string | null;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @IsUUID()
   genderId?: string | null;
 
   @IsOptional()

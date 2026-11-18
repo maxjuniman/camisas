@@ -80,7 +80,7 @@ export function ProductsPage() {
         <tbody>
           {items.map((product) => (
             <tr key={product.id}>
-              <td>{product.name}<small>{product.team?.name}</small></td>
+              <td>{product.name}<small>{[product.sport?.name, product.country?.name, product.team?.name].filter(Boolean).join(' · ')}</small></td>
               <td>{formatPrice(product.price)}</td>
               <td>{statusLabel[product.status]} · {product.isActive ? 'Ativo' : 'Inativo'}</td>
               <td>

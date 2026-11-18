@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 export const productInclude = {
   team: true,
   sport: true,
+  country: true,
   gender: true,
   category: true,
   season: true,
@@ -21,6 +22,7 @@ export function serializeProduct(product: ProductWithRelations) {
     price: Number(product.price),
     team: product.team,
     sport: product.sport,
+    country: product.country,
     gender: product.gender,
     category: product.category,
     season: product.season,

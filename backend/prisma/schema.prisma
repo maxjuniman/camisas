@@ -57,15 +57,34 @@ model User {
   updatedAt    DateTime      @updatedAt
 }
 
+model Country {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  teams     Team[]
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
 model Team {
   id        String    @id @default(uuid())
   name      String
   slug      String    @unique
   isActive  Boolean   @default(true)
   sortOrder Int       @default(0)
+  sportId   String?
+  sport     Sport?    @relation(fields: [sportId], references: [id], onDelete: SetNull)
+  countryId String?
+  country   Country?  @relation(fields: [countryId], references: [id], onDelete: SetNull)
   products  Product[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([sportId])
+  @@index([countryId])
 }
 
 model Sport {
@@ -75,6 +94,7 @@ model Sport {
   isActive  Boolean   @default(true)
   sortOrder Int       @default(0)
   products  Product[]
+  teams     Team[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -133,6 +153,8 @@ model Product {
   team                Team?                @relation(fields: [teamId], references: [id])
   sportId             String?
   sport               Sport?               @relation(fields: [sportId], references: [id])
+  countryId           String?
+  country             Country?             @relation(fields: [countryId], references: [id], onDelete: SetNull)
   genderId            String?
   gender              Gender?              @relation(fields: [genderId], references: [id])
   categoryId          String?
@@ -158,6 +180,7 @@ model Product {
 
   @@index([status, isActive, availableForOrder])
   @@index([normalizedName])
+  @@index([countryId])
 }
 
 model ProductImage {

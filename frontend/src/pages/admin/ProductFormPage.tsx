@@ -14,6 +14,7 @@ const schema = z.object({
   price: z.coerce.number().min(0, 'Informe o preço'),
   teamId: z.string().optional(),
   sportId: z.string().optional(),
+  countryId: z.string().optional(),
   genderId: z.string().optional(),
   categoryId: z.string().optional(),
   seasonId: z.string().optional(),
@@ -27,9 +28,9 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
-type Lists = Record<'teams' | 'sports' | 'genders' | 'categories' | 'seasons' | 'sizes', RefItem[]>;
+type Lists = Record<'teams' | 'sports' | 'countries' | 'genders' | 'categories' | 'seasons' | 'sizes', RefItem[]>;
 
-const emptyLists: Lists = { teams: [], sports: [], genders: [], categories: [], seasons: [], sizes: [] };
+const emptyLists: Lists = { teams: [], sports: [], countries: [], genders: [], categories: [], seasons: [], sizes: [] };
 
 export function ProductFormPage() {
   const { id } = useParams();
@@ -46,6 +47,9 @@ export function ProductFormPage() {
       name: '',
       description: '',
       price: 0,
+      teamId: '',
+      sportId: '',
+      countryId: '',
       status: 'APPROVED',
       isActive: true,
       availableForOrder: true,
@@ -60,14 +64,16 @@ export function ProductFormPage() {
     Promise.all([
       api.get<RefItem[]>('/admin/taxonomies/teams'),
       api.get<RefItem[]>('/admin/taxonomies/sports'),
+      api.get<RefItem[]>('/admin/taxonomies/countries'),
       api.get<RefItem[]>('/admin/taxonomies/genders'),
       api.get<RefItem[]>('/admin/taxonomies/categories'),
       api.get<RefItem[]>('/admin/taxonomies/seasons'),
       api.get<RefItem[]>('/admin/taxonomies/sizes'),
-    ]).then(([teams, sports, genders, categories, seasons, sizes]) => {
+    ]).then(([teams, sports, countries, genders, categories, seasons, sizes]) => {
       setLists({
         teams: teams.data,
         sports: sports.data,
+        countries: countries.data,
         genders: genders.data,
         categories: categories.data,
         seasons: seasons.data,
@@ -86,6 +92,7 @@ export function ProductFormPage() {
         price: product.price,
         teamId: product.team?.id || '',
         sportId: product.sport?.id || '',
+        countryId: product.country?.id || '',
         genderId: product.gender?.id || '',
         categoryId: product.category?.id || '',
         seasonId: product.season?.id || '',
@@ -139,11 +146,16 @@ export function ProductFormPage() {
     <section>
       <h1>{id ? 'Editar produto' : 'Novo produto'}</h1>
       <Form onSubmit={form.handleSubmit(submit)}>
-        <Field>Nome<Input {...form.register('name')} /></Field>
+        <Field>Nome para o site<Input {...form.register('name')} /></Field>
         <Field>Descrição<TextArea {...form.register('description')} /></Field>
         <Field>Preço<Input type="number" step="0.01" {...form.register('price')} /></Field>
-        <Choice name="Time" options={lists.teams} register={form.register('teamId')} />
         <Choice name="Esporte" options={lists.sports} register={form.register('sportId')} />
+        <Choice name="País" options={lists.countries} register={form.register('countryId')} />
+        <Choice name="Time" options={lists.teams} register={form.register('teamId')} onPick={(value) => {
+          const team = lists.teams.find((item) => item.id === value);
+          if (team?.sportId) form.setValue('sportId', team.sportId);
+          if (team?.countryId) form.setValue('countryId', team.countryId);
+        }} />
         <Choice name="Sexo" options={lists.genders} register={form.register('genderId')} />
         <Choice name="Categoria" options={lists.categories} register={form.register('categoryId')} />
         <Choice name="Temporada" options={lists.seasons} register={form.register('seasonId')} />
@@ -196,11 +208,11 @@ export function ProductFormPage() {
   );
 }
 
-function Choice({ name, options, register }: { name: string; options: RefItem[]; register: UseFormRegisterReturn }) {
+function Choice({ name, options, register, onPick }: { name: string; options: RefItem[]; register: UseFormRegisterReturn; onPick?: (value: string) => void }) {
   return (
     <Field>
       {name}
-      <Select {...register}>
+      <Select {...register} onChange={(event) => { void register.onChange(event); onPick?.(event.target.value); }}>
         <option value="">Selecione</option>
         {options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
       </Select>

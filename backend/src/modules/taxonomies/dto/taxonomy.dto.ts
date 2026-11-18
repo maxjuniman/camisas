@@ -1,5 +1,7 @@
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+
+const emptyToNull = ({ value }: { value: unknown }) => (value === '' ? null : value);
 
 export class UpsertTaxonomyDto {
   @IsString()
@@ -14,6 +16,16 @@ export class UpsertTaxonomyDto {
   @Type(() => Number)
   @IsInt()
   sortOrder?: number;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @IsUUID()
+  sportId?: string | null;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @IsUUID()
+  countryId?: string | null;
 }
 
 export class PatchTaxonomyDto {
@@ -31,4 +43,14 @@ export class PatchTaxonomyDto {
   @Type(() => Number)
   @IsInt()
   sortOrder?: number;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @IsUUID()
+  sportId?: string | null;
+
+  @IsOptional()
+  @Transform(emptyToNull)
+  @IsUUID()
+  countryId?: string | null;
 }

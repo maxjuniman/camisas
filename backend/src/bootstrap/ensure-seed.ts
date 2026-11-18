@@ -26,6 +26,7 @@ const groups: Record<string, { name: string; sortOrder?: number }[]> = {
     { name: 'Terceira camisa' },
     { name: 'Treino' },
     { name: 'Retrô' },
+    { name: 'Passeio' },
   ],
   season: [{ name: '2025/26' }, { name: '2026/27' }],
   size: [
@@ -66,6 +67,56 @@ export async function ensureSeed(prisma: PrismaClient) {
   await seedGroup(prisma, 'category', groups.category);
   await seedGroup(prisma, 'season', groups.season);
   await seedGroup(prisma, 'size', groups.size);
+  await seedCountries(prisma);
+  await linkTeams(prisma);
+}
+
+async function seedCountries(prisma: PrismaClient) {
+  const countries = [
+    { name: 'Brasil', sortOrder: 10 },
+    { name: 'EUA', sortOrder: 20 },
+    { name: 'Espanha', sortOrder: 30 },
+    { name: 'Inglaterra', sortOrder: 40 },
+  ];
+  for (const country of countries) {
+    const slug = slugify(country.name);
+    await prisma.country.upsert({
+      where: { slug },
+      update: {},
+      create: { name: country.name, slug, sortOrder: country.sortOrder },
+    });
+  }
+}
+
+async function linkTeams(prisma: PrismaClient) {
+  const links = [
+    { name: 'Grêmio', sport: 'futebol', country: 'brasil' },
+    { name: 'Internacional', sport: 'futebol', country: 'brasil' },
+    { name: 'Barcelona', sport: 'futebol', country: 'espanha' },
+    { name: 'Real Madrid', sport: 'futebol', country: 'espanha' },
+    { name: 'Manchester City', sport: 'futebol', country: 'inglaterra' },
+    { name: 'Chicago Bulls', sport: 'basquete', country: 'eua' },
+  ];
+  for (const link of links) {
+    const sport = await prisma.sport.findUnique({ where: { slug: link.sport } });
+    const country = await prisma.country.findUnique({ where: { slug: link.country } });
+    if (!sport || !country) continue;
+    const slug = slugify(link.name);
+    const existing = await prisma.team.findUnique({ where: { slug } });
+    if (!existing) {
+      await prisma.team.create({
+        data: { name: link.name, slug, sportId: sport.id, countryId: country.id },
+      });
+      continue;
+    }
+    await prisma.team.update({
+      where: { slug },
+      data: {
+        sportId: existing.sportId ?? sport.id,
+        countryId: existing.countryId ?? country.id,
+      },
+    });
+  }
 }
 
 async function seedGroup(

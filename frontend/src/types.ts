@@ -4,6 +4,10 @@ export type RefItem = {
   slug: string;
   isActive?: boolean;
   sortOrder?: number;
+  sportId?: string | null;
+  countryId?: string | null;
+  sport?: { id: string; name: string; slug: string } | null;
+  country?: { id: string; name: string; slug: string } | null;
 };
 
 export type ProductImage = {
@@ -23,6 +27,7 @@ export type Product = {
   price: number;
   team: RefItem | null;
   sport: RefItem | null;
+  country: RefItem | null;
   gender: RefItem | null;
   category: RefItem | null;
   season: RefItem | null;

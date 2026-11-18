@@ -18,6 +18,10 @@ export class CatalogQueryDto {
 
   @IsOptional()
   @IsString()
+  countries?: string;
+
+  @IsOptional()
+  @IsString()
   genders?: string;
 
   @IsOptional()

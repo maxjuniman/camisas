@@ -1,12 +1,13 @@
 import { FormEvent, useEffect, useState } from 'react';
 import styled from 'styled-components';
-import { Button, Input, Notice } from '../../components/ui';
+import { Button, Input, Notice, Select } from '../../components/ui';
 import { api } from '../../services/api';
 import { RefItem } from '../../types';
 
 const tabs = [
   ['teams', 'Times'],
   ['sports', 'Esportes'],
+  ['countries', 'Países'],
   ['genders', 'Sexo'],
   ['categories', 'Categorias'],
   ['sizes', 'Tamanhos'],
@@ -17,6 +18,10 @@ export function TaxonomiesPage() {
   const [kind, setKind] = useState<(typeof tabs)[number][0]>('teams');
   const [items, setItems] = useState<RefItem[]>([]);
   const [name, setName] = useState('');
+  const [sportId, setSportId] = useState('');
+  const [countryId, setCountryId] = useState('');
+  const [sports, setSports] = useState<RefItem[]>([]);
+  const [countries, setCountries] = useState<RefItem[]>([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -27,14 +32,27 @@ export function TaxonomiesPage() {
 
   useEffect(() => {
     void load(kind).catch((reason: Error) => setError(reason.message));
+    if (kind !== 'teams') return;
+    Promise.all([
+      api.get<RefItem[]>('/admin/taxonomies/sports'),
+      api.get<RefItem[]>('/admin/taxonomies/countries'),
+    ]).then(([sportRes, countryRes]) => {
+      setSports(sportRes.data);
+      setCountries(countryRes.data);
+    }).catch(() => undefined);
   }, [kind]);
 
   async function create(event: FormEvent) {
     event.preventDefault();
     setError('');
     try {
-      await api.post(`/admin/taxonomies/${kind}`, { name });
+      await api.post(`/admin/taxonomies/${kind}`, {
+        name,
+        ...(kind === 'teams' ? { sportId: sportId || null, countryId: countryId || null } : {}),
+      });
       setName('');
+      setSportId('');
+      setCountryId('');
       setMessage('Cadastro criado.');
       await load();
     } catch (reason) {
@@ -73,16 +91,33 @@ export function TaxonomiesPage() {
           <button key={value} type="button" data-on={kind === value} onClick={() => setKind(value)}>{label}</button>
         ))}
       </Tabs>
-      <form onSubmit={create}>
+      <Creator onSubmit={create}>
         <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Novo nome" required />
+        {kind === 'teams' ? (
+          <>
+            <Select value={sportId} onChange={(event) => setSportId(event.target.value)} aria-label="Esporte">
+              <option value="">Esporte</option>
+              {sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </Select>
+            <Select value={countryId} onChange={(event) => setCountryId(event.target.value)} aria-label="País">
+              <option value="">País</option>
+              {countries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </Select>
+          </>
+        ) : null}
         <Button type="submit">Adicionar</Button>
-      </form>
+      </Creator>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       <List>
         {items.map((item) => (
           <li key={item.id}>
-            <span>{item.name}{item.isActive ? '' : ' · inativo'}</span>
+            <span>
+              {item.name}
+              {item.sport?.name ? ` · ${item.sport.name}` : ''}
+              {item.country?.name ? ` · ${item.country.name}` : ''}
+              {item.isActive ? '' : ' · inativo'}
+            </span>
             <span>
               <button type="button" onClick={() => void rename(item)}>Editar</button>
               <button type="button" onClick={() => void toggle(item)}>{item.isActive ? 'Desativar' : 'Ativar'}</button>
@@ -95,6 +130,7 @@ export function TaxonomiesPage() {
   );
 }
 
+const Creator = styled.form`display: grid; gap: 8px; max-width: 420px;`;
 const Tabs = styled.div`
   display: flex; flex-wrap: wrap; gap: 8px;
   button { background: transparent; border: 1px solid ${({ theme }) => theme.line}; padding: 8px 10px; cursor: pointer; }

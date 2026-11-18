@@ -10,6 +10,7 @@ import { Product, RefItem } from '../types';
 type Filters = {
   teams: RefItem[];
   sports: RefItem[];
+  countries: RefItem[];
   genders: RefItem[];
   categories: RefItem[];
   sizes: RefItem[];
@@ -19,9 +20,10 @@ type Filters = {
 type Page = { items: Product[]; total: number; page: number; pageSize: number };
 
 const groups = [
-  ['sizes', 'Tamanho'],
-  ['teams', 'Time'],
   ['sports', 'Esporte'],
+  ['countries', 'País'],
+  ['teams', 'Time'],
+  ['sizes', 'Tamanho'],
   ['genders', 'Sexo'],
   ['categories', 'Categoria'],
 ] as const;

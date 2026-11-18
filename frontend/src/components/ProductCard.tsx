@@ -23,9 +23,9 @@ export function ProductCard({ product }: { product: Product }) {
         </Marks>
       </Photo>
       <Meta>
-        <Team>{product.team?.name || product.sport?.name || 'Esporte'}</Team>
+        <Team>{[product.sport?.name, product.country?.name, product.team?.name].filter(Boolean).join(' · ') || 'Esporte'}</Team>
         <Name to={`/produto/${product.slug}`}>{product.name}</Name>
-        <Line>{[product.sport?.name, product.gender?.name].filter(Boolean).join(' · ')}</Line>
+        <Line>{[product.category?.name, product.gender?.name].filter(Boolean).join(' · ')}</Line>
         <Price>{formatPrice(product.price)}</Price>
         <Sizes>
           {product.sizes.map((item) => (

@@ -174,6 +174,7 @@ export class ScrapingService {
       normalizedName: normalizeName(dto.name),
       teamId: dto.teamId || null,
       sportId: dto.sportId || null,
+      countryId: dto.countryId || null,
       genderId: dto.genderId || null,
       categoryId: dto.categoryId || null,
       seasonId: dto.seasonId || null,
