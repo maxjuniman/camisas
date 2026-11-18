@@ -208,6 +208,22 @@ model ProductSize {
   @@id([productId, sizeId])
 }
 
+model ApprovalJob {
+  id            String    @id @default(uuid())
+  status        JobStatus @default(QUEUED)
+  price         Decimal   @default(0) @db.Decimal(10, 2)
+  foundCount    Int       @default(0)
+  cursor        Int       @default(0)
+  approvedCount Int       @default(0)
+  skippedCount  Int       @default(0)
+  errorLog      String    @default("")
+  queue         Json?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
 model ScrapingJob {
   id                    String           @id @default(uuid())
   status                JobStatus        @default(QUEUED)

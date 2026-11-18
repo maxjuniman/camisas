@@ -46,6 +46,8 @@ export class ScrapingService implements OnModuleInit {
       }
       this.launch(job.id, () => this.continuePaused(job.id));
     }
+    const approvals = await this.prisma.approvalJob.findMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } } });
+    for (const approval of approvals) this.startApproval(approval.id);
   }
 
   constructor(
@@ -162,8 +164,29 @@ export class ScrapingService implements OnModuleInit {
     return updated;
   }
 
+  async listApprovals() {
+    return this.prisma.approvalJob.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: {
+        id: true,
+        status: true,
+        foundCount: true,
+        cursor: true,
+        approvedCount: true,
+        skippedCount: true,
+        finishedAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
   async reset() {
     this.epoch += 1;
+    await this.prisma.approvalJob.updateMany({
+      where: { status: { in: ['QUEUED', 'RUNNING'] } },
+      data: { status: 'FAILED', finishedAt: new Date(), errorLog: 'Importação zerada pelo administrador.' },
+    });
     await this.prisma.scrapingJob.updateMany({
       where: { status: { in: ['QUEUED', 'RUNNING', 'PAUSED'] } },
       data: {
@@ -185,11 +208,66 @@ export class ScrapingService implements OnModuleInit {
   }
 
   async approveWithoutReview(price = 0) {
+    const active = await this.prisma.approvalJob.findFirst({ where: { status: { in: ['QUEUED', 'RUNNING'] } } });
+    if (active) throw new ConflictException('Já existe uma aprovação em andamento.');
     const pending = await this.prisma.scrapedProduct.findMany({
       where: { reviewStatus: 'PENDING' },
-      include: { images: { orderBy: { sortOrder: 'asc' } }, linkedProduct: true },
+      select: { id: true, matchStatus: true, displayName: true, rawName: true },
       orderBy: { createdAt: 'asc' },
     });
+    const ids: string[] = [];
+    let skipped = 0;
+    for (const item of pending) {
+      const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
+      if (item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE' || name.length < 2) {
+        skipped += 1;
+        continue;
+      }
+      ids.push(item.id);
+    }
+    if (!ids.length) {
+      throw new BadRequestException('Não há itens prontos para aprovar. Erros e possíveis duplicados continuam na revisão.');
+    }
+    const job = await this.prisma.approvalJob.create({
+      data: {
+        status: 'QUEUED',
+        price,
+        foundCount: ids.length,
+        skippedCount: skipped,
+        queue: ids,
+      },
+    });
+    this.startApproval(job.id);
+    return {
+      id: job.id,
+      status: job.status,
+      foundCount: ids.length,
+      cursor: 0,
+      approvedCount: 0,
+      skippedCount: skipped,
+    };
+  }
+
+  private startApproval(jobId: string) {
+    if (this.running.has(jobId)) return;
+    this.running.add(jobId);
+    const epoch = this.epoch;
+    setImmediate(() => {
+      void this.runApproval(jobId, epoch)
+        .catch((error) => this.failApproval(jobId, error))
+        .finally(() => this.running.delete(jobId));
+    });
+  }
+
+  private async runApproval(jobId: string, epoch: number) {
+    const job = await this.prisma.approvalJob.findUnique({ where: { id: jobId } });
+    if (!job || job.status === 'FAILED' || job.status === 'SUCCEEDED') return;
+    const ids = Array.isArray(job.queue) ? job.queue.filter((item): item is string => typeof item === 'string') : [];
+    await this.prisma.approvalJob.update({
+      where: { id: jobId },
+      data: { status: 'RUNNING', startedAt: job.startedAt ?? new Date() },
+    });
+    const price = Number(job.price);
     const [teams, sports, genders, categories, seasons, sizes] = await Promise.all([
       this.prisma.team.findMany({ where: { isActive: true } }),
       this.prisma.sport.findMany({ where: { isActive: true } }),
@@ -198,51 +276,98 @@ export class ScrapingService implements OnModuleInit {
       this.prisma.season.findMany({ where: { isActive: true } }),
       this.prisma.size.findMany({ where: { isActive: true } }),
     ]);
-    let approved = 0;
-    let skipped = 0;
-    for (const item of pending) {
-      if (item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE') {
+    let approved = job.approvedCount;
+    let skipped = job.skippedCount;
+    const notes = job.errorLog ? job.errorLog.split('\n').filter(Boolean) : [];
+    for (let index = job.cursor; index < ids.length; index += 1) {
+      if (this.epoch !== epoch) return;
+      const current = await this.prisma.approvalJob.findUnique({ where: { id: jobId }, select: { status: true } });
+      if (!current || current.status === 'FAILED' || current.status === 'SUCCEEDED') return;
+      try {
+        const outcome = await this.approveQueuedItem(ids[index], price, { teams, sports, genders, categories, seasons, sizes });
+        if (outcome === 'approved') approved += 1;
+        else skipped += 1;
+      } catch (error) {
         skipped += 1;
-        continue;
+        const message = error instanceof Error ? error.message : 'Erro desconhecido';
+        notes.push(`${ids[index]}: ${message}`);
       }
-      if (item.linkedProductId) {
-        await this.copyImages(item.linkedProductId, item.images, item.displayName || item.rawName);
-        await this.prisma.scrapedProduct.update({ where: { id: item.id }, data: { reviewStatus: 'APPROVED' } });
-        approved += 1;
-        continue;
-      }
-      const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
-      if (name.length < 2) {
-        skipped += 1;
-        continue;
-      }
-      const team = teams.find((entry) => entry.name.toLowerCase() === (item.suggestedTeam || '').toLowerCase());
-      const sportId = team?.sportId || sports.find((entry) => entry.slug === 'futebol')?.id;
-      const gender = genders.find((entry) => entry.name.toLowerCase() === (item.suggestedGender || '').toLowerCase());
-      const category = categories.find((entry) => entry.name.toLowerCase() === (item.suggestedCategory || '').toLowerCase());
-      const seasonMatch = item.rawName.match(/\b(\d{2})\/(\d{2})\b/);
-      const season = seasonMatch ? seasons.find((entry) => entry.name === `20${seasonMatch[1]}/${seasonMatch[2]}`) : undefined;
-      const wanted = new Set((item.suggestedSizes || '').split(',').map((size) => size.trim().toLowerCase()).filter(Boolean));
-      const sizeIds = sizes.filter((size) => wanted.has(size.name.toLowerCase())).map((size) => size.id);
-      await this.review(item.id, {
-        action: 'approve',
-        name,
-        description: item.rawDescription,
-        price,
-        teamId: team?.id,
-        sportId,
-        countryId: team?.countryId || undefined,
-        genderId: gender?.id,
-        categoryId: category?.id,
-        seasonId: season?.id,
-        sizeIds,
-        importImages: true,
-        isActive: true,
-        availableForOrder: true,
+      await this.prisma.approvalJob.update({
+        where: { id: jobId },
+        data: {
+          cursor: index + 1,
+          approvedCount: approved,
+          skippedCount: skipped,
+          errorLog: notes.join('\n').slice(0, 20000),
+        },
       });
-      approved += 1;
     }
-    return { approved, skipped };
+    if (this.epoch !== epoch) return;
+    await this.prisma.approvalJob.update({
+      where: { id: jobId },
+      data: { status: 'SUCCEEDED', finishedAt: new Date(), cursor: ids.length, approvedCount: approved, skippedCount: skipped },
+    });
+  }
+
+  private async approveQueuedItem(
+    id: string,
+    price: number,
+    lists: {
+      teams: { id: string; name: string; sportId: string | null; countryId: string | null }[];
+      sports: { id: string; slug: string }[];
+      genders: { id: string; name: string }[];
+      categories: { id: string; name: string }[];
+      seasons: { id: string; name: string }[];
+      sizes: { id: string; name: string }[];
+    },
+  ): Promise<'approved' | 'skipped'> {
+    const item = await this.prisma.scrapedProduct.findUnique({
+      where: { id },
+      include: { images: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!item || item.reviewStatus === 'IGNORED') return 'skipped';
+    if (item.reviewStatus === 'APPROVED') return 'approved';
+    if (item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE') return 'skipped';
+    if (item.linkedProductId) {
+      await this.copyImages(item.linkedProductId, item.images, item.displayName || item.rawName);
+      await this.prisma.scrapedProduct.update({ where: { id: item.id }, data: { reviewStatus: 'APPROVED' } });
+      return 'approved';
+    }
+    const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
+    if (name.length < 2) return 'skipped';
+    const team = lists.teams.find((entry) => entry.name.toLowerCase() === (item.suggestedTeam || '').toLowerCase());
+    const sportId = team?.sportId || lists.sports.find((entry) => entry.slug === 'futebol')?.id;
+    const gender = lists.genders.find((entry) => entry.name.toLowerCase() === (item.suggestedGender || '').toLowerCase());
+    const category = lists.categories.find((entry) => entry.name.toLowerCase() === (item.suggestedCategory || '').toLowerCase());
+    const seasonMatch = item.rawName.match(/\b(\d{2})\/(\d{2})\b/);
+    const season = seasonMatch ? lists.seasons.find((entry) => entry.name === `20${seasonMatch[1]}/${seasonMatch[2]}`) : undefined;
+    const wanted = new Set((item.suggestedSizes || '').split(',').map((size) => size.trim().toLowerCase()).filter(Boolean));
+    const sizeIds = lists.sizes.filter((size) => wanted.has(size.name.toLowerCase())).map((size) => size.id);
+    await this.review(item.id, {
+      action: 'approve',
+      name,
+      description: item.rawDescription,
+      price,
+      teamId: team?.id,
+      sportId,
+      countryId: team?.countryId || undefined,
+      genderId: gender?.id,
+      categoryId: category?.id,
+      seasonId: season?.id,
+      sizeIds,
+      importImages: true,
+      isActive: true,
+      availableForOrder: true,
+    });
+    return 'approved';
+  }
+
+  private async failApproval(jobId: string, error: unknown) {
+    const message = error instanceof Error ? error.message : 'Falha ao aprovar.';
+    await this.prisma.approvalJob.update({
+      where: { id: jobId },
+      data: { status: 'FAILED', finishedAt: new Date(), errorLog: message.slice(0, 20000) },
+    }).catch(() => undefined);
   }
 
   private async copyImages(

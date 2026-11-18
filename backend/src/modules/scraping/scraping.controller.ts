@@ -58,6 +58,11 @@ export class ScrapingController {
     return this.scraping.reset();
   }
 
+  @Get('approvals')
+  approvals() {
+    return this.scraping.listApprovals();
+  }
+
   @Post('approve')
   approvePending(@Body() dto: ApprovePendingDto) {
     return this.scraping.approveWithoutReview(dto.price ?? 0);

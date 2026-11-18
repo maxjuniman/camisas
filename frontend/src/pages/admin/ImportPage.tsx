@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, useEffect, useState } from 'react';
+import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import { useDialog } from '../../components/dialog';
@@ -21,6 +21,15 @@ type Job = {
   duplicateSuspectCount: number;
   errorCount: number;
   errorLog: string;
+};
+
+type Approval = {
+  id: string;
+  status: string;
+  foundCount: number;
+  cursor: number;
+  approvedCount: number;
+  skippedCount: number;
 };
 
 type Item = {
@@ -52,6 +61,7 @@ const statusLabel: Record<string, string> = {
 
 export function ImportPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [link, setLink] = useState('');
   const [modal, setModal] = useState<'import' | 'stop' | 'resume' | 'link' | null>(null);
@@ -63,16 +73,19 @@ export function ImportPage() {
   const [price, setPrice] = useState('');
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const dialog = useDialog();
+  const approvalSeen = useRef('');
 
   async function load() {
-    const [jobRes, itemRes, sourceRes] = await Promise.all([
+    const [jobRes, itemRes, sourceRes, approvalRes] = await Promise.all([
       api.get<Job[]>('/admin/scraping/jobs'),
       api.get<Item[]>('/admin/scraping/items', { params: { reviewStatus: 'PENDING' } }),
       api.get<{ url: string }>('/admin/scraping/source'),
+      api.get<Approval[]>('/admin/scraping/approvals'),
     ]);
     setJobs(jobRes.data);
     setItems(itemRes.data);
     setSource(sourceRes.data.url);
+    setApprovals(approvalRes.data);
   }
 
   useEffect(() => {
@@ -82,6 +95,20 @@ export function ImportPage() {
     }, 2000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const job = approvals[0];
+    if (!job) return;
+    const previous = approvalSeen.current;
+    const wasRunning = previous === `${job.id}:QUEUED` || previous === `${job.id}:RUNNING`;
+    if (wasRunning && job.status === 'SUCCEEDED') {
+      setMessage(`${job.approvedCount} produtos aprovados. ${job.skippedCount} ficaram para revisão.`);
+    }
+    if (wasRunning && job.status === 'FAILED') {
+      setError('A aprovação foi interrompida.');
+    }
+    approvalSeen.current = `${job.id}:${job.status}`;
+  }, [approvals]);
 
   async function pause(id: string) {
     setError('');
@@ -137,16 +164,14 @@ export function ImportPage() {
       return;
     }
     const confirmed = await dialog.confirm(
-      `Aprovar ${ready.length} itens sem abrir a revisão? O nome para o site, os tamanhos e as imagens já coletados serão usados. Erros e possíveis duplicados permanecem pendentes.`,
+      `Aprovar ${ready.length} itens sem abrir a revisão? A fila publica um por vez e a barra mostra o andamento. Erros e possíveis duplicados permanecem pendentes.`,
     );
     if (!confirmed) return;
     setError('');
     setApproving(true);
     try {
-      const { data } = await api.post<{ approved: number; skipped: number }>('/admin/scraping/approve', {
-        price: parsed,
-      });
-      setMessage(`${data.approved} produtos aprovados. ${data.skipped} ficaram para revisão.`);
+      await api.post('/admin/scraping/approve', { price: parsed });
+      setMessage('Aprovação iniciada.');
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Falha ao aprovar.');
@@ -190,6 +215,10 @@ export function ImportPage() {
 
   const latest = jobs[0];
   const active = jobs.find((job) => job.status === 'RUNNING' || job.status === 'QUEUED' || job.status === 'PAUSED');
+  const approvingJob = approvals.find((job) => job.status === 'RUNNING' || job.status === 'QUEUED');
+  const approvalPercent = approvingJob?.foundCount
+    ? Math.min(100, Math.round((approvingJob.cursor / approvingJob.foundCount) * 100))
+    : 0;
 
   return (
     <section>
@@ -265,7 +294,16 @@ export function ImportPage() {
           <strong>{active.foundCount ? `${Math.min(100, Math.round((active.cursor / active.foundCount) * 100))}%` : '…'}</strong>
         </Progress>
       ) : null}
-      {!active && items.length ? (
+      {approvingJob ? (
+        <Progress>
+          <p>{approvingJob.foundCount ? `Aprovando ${approvingJob.cursor} de ${approvingJob.foundCount}` : 'Preparando a aprovação'}</p>
+          <Track>
+            <Fill style={{ width: approvingJob.foundCount ? `${approvalPercent}%` : undefined }} $busy={!approvingJob.foundCount} />
+          </Track>
+          <strong>{approvingJob.foundCount ? `${approvalPercent}%` : '…'}</strong>
+        </Progress>
+      ) : null}
+      {!active && !approvingJob && items.length ? (
         <>
           <h2>Pendentes de aprovação</h2>
           {items.some((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE') ? (
@@ -295,7 +333,7 @@ export function ImportPage() {
             </div>
           ))}
         </>
-      ) : !active ? (
+      ) : !active && !approvingJob ? (
         <p>{latest && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
       ) : null}
       <h2>Histórico</h2>
