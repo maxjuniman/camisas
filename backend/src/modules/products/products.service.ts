@@ -19,6 +19,7 @@ export class ProductsService {
     const where: Prisma.ProductWhereInput = {
       ...(query.teamId ? { teamId: query.teamId } : {}),
       ...(query.sportId ? { sportId: query.sportId } : {}),
+      ...(query.countryId ? { countryId: query.countryId } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.isActive != null ? { isActive: query.isActive } : {}),

@@ -13,10 +13,12 @@ export function ProductsPage() {
   const [items, setItems] = useState<Product[]>([]);
   const [teams, setTeams] = useState<RefItem[]>([]);
   const [sports, setSports] = useState<RefItem[]>([]);
+  const [countries, setCountries] = useState<RefItem[]>([]);
   const [categories, setCategories] = useState<RefItem[]>([]);
   const [q, setQ] = useState('');
   const [teamId, setTeamId] = useState('');
   const [sportId, setSportId] = useState('');
+  const [countryId, setCountryId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState('');
   const [total, setTotal] = useState(0);
@@ -26,7 +28,7 @@ export function ProductsPage() {
 
   async function load() {
     const params = Object.fromEntries(
-      Object.entries({ q, teamId, sportId, categoryId, status }).filter(([, value]) => value.trim()),
+      Object.entries({ q, teamId, sportId, countryId, categoryId, status }).filter(([, value]) => value.trim()),
     );
     const { data } = await api.get<Page>('/admin/products', { params });
     setItems(data.items);
@@ -37,11 +39,13 @@ export function ProductsPage() {
     Promise.all([
       api.get<RefItem[]>('/admin/taxonomies/teams'),
       api.get<RefItem[]>('/admin/taxonomies/sports'),
+      api.get<RefItem[]>('/admin/taxonomies/countries'),
       api.get<RefItem[]>('/admin/taxonomies/categories'),
       load(),
-    ]).then(([teamRes, sportRes, categoryRes]) => {
+    ]).then(([teamRes, sportRes, countryRes, categoryRes]) => {
       setTeams(teamRes.data);
       setSports(sportRes.data);
+      setCountries(countryRes.data);
       setCategories(categoryRes.data);
     }).catch((reason: Error) => setError(reason.message));
     // eslint isn't configured; load uses current filters on mount only.
@@ -60,6 +64,35 @@ export function ProductsPage() {
     await load();
   }
 
+  const visibleCountries = sportId
+    ? countries.filter((country) => teams.some((team) => team.sportId === sportId && team.countryId === country.id))
+    : countries;
+  const visibleTeams = teams.filter((team) => (!sportId || team.sportId === sportId) && (!countryId || team.countryId === countryId));
+
+  function changeSport(value: string) {
+    const nextCountries = value
+      ? countries.filter((country) => teams.some((team) => team.sportId === value && team.countryId === country.id))
+      : countries;
+    setSportId(value);
+    setCountryId((current) => (current && nextCountries.some((country) => country.id === current) ? current : ''));
+    setTeamId((current) => {
+      const team = teams.find((item) => item.id === current);
+      const countryStays = !countryId || nextCountries.some((country) => country.id === countryId);
+      if (!team || (value && team.sportId !== value)) return '';
+      if (countryStays && countryId && team.countryId !== countryId) return '';
+      return current;
+    });
+  }
+
+  function changeCountry(value: string) {
+    setCountryId(value);
+    setTeamId((current) => {
+      const team = teams.find((item) => item.id === current);
+      if (!team || (value && team.countryId !== value) || (sportId && team.sportId !== sportId)) return '';
+      return current;
+    });
+  }
+
   return (
     <section>
       <Head>
@@ -67,9 +100,9 @@ export function ProductsPage() {
         <Button as={Link} to="/admin/produtos/novo">Novo produto</Button>
       </Head>
       <Filters onSubmit={(event) => { event.preventDefault(); void load().catch((reason: Error) => setError(reason.message)); }}>
-        <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Pesquisar" />
-        <Select value={teamId} onChange={(event) => setTeamId(event.target.value)}><option value="">Time</option>{teams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-        <Select value={sportId} onChange={(event) => setSportId(event.target.value)}><option value="">Esporte</option>{sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
+        <Select value={sportId} onChange={(event) => changeSport(event.target.value)}><option value="">Esporte</option>{sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
+        <Select value={countryId} onChange={(event) => changeCountry(event.target.value)}><option value="">País</option>{visibleCountries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
+        <Select value={teamId} onChange={(event) => setTeamId(event.target.value)}><option value="">Time</option>{visibleTeams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
         <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Categoria</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
         <Select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">Status</option>
@@ -78,6 +111,7 @@ export function ProductsPage() {
           <option value="DRAFT">Rascunho</option>
           <option value="IGNORED">Ignorado</option>
         </Select>
+        <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Pesquisar" />
         <Button type="submit" $tone="ink">Filtrar</Button>
       </Filters>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
@@ -106,7 +140,7 @@ export function ProductsPage() {
 }
 
 const Head = styled.div`display: flex; justify-content: space-between; align-items: center; h1 { font-family: ${({ theme }) => theme.display}; font-size: 48px; text-transform: uppercase; }`;
-const Filters = styled.form`display: grid; grid-template-columns: 1.4fr repeat(4, 1fr) auto; gap: 8px; @media (max-width: 900px) { grid-template-columns: 1fr; }`;
+const Filters = styled.form`display: grid; grid-template-columns: repeat(5, 1fr) 1.3fr auto; gap: 8px; @media (max-width: 1100px) { grid-template-columns: 1fr 1fr; } @media (max-width: 640px) { grid-template-columns: 1fr; }`;
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;

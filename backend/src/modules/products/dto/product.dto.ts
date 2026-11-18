@@ -133,6 +133,11 @@ export class AdminProductQueryDto {
   @IsOptional()
   @Transform(blankToUndefined)
   @IsUUID()
+  countryId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
   categoryId?: string;
 
   @IsOptional()
