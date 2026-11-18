@@ -12,6 +12,11 @@ type AuthRequest = Request & { user: { id: string } };
 export class ScrapingController {
   constructor(private readonly scraping: ScrapingService) {}
 
+  @Get('source')
+  source() {
+    return { url: this.scraping.categoryUrl() };
+  }
+
   @Get('jobs')
   jobs() {
     return this.scraping.listJobs();
@@ -46,6 +51,11 @@ export class ScrapingController {
   @Post('jobs/:id/resume')
   resume(@Param('id') id: string) {
     return this.scraping.resume(id);
+  }
+
+  @Post('reset')
+  reset() {
+    return this.scraping.reset();
   }
 
   @Post('import')

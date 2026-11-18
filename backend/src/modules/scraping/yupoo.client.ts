@@ -1,8 +1,8 @@
 import { parse, HTMLElement } from 'node-html-parser';
 
 const USER_AGENT = 'Mozilla/5.0 (compatible; CamisasStore/1.0; +catalog-import)';
-const CATEGORY_URL = () =>
-  process.env.YUPOO_CATEGORY_URL || 'https://minkang.x.yupoo.com/categories/680738';
+export const DEFAULT_CATEGORY_URL = 'https://minkang.x.yupoo.com/categories/720316?isSubCate=true';
+const CATEGORY_URL = () => process.env.YUPOO_CATEGORY_URL || DEFAULT_CATEGORY_URL;
 
 export class SupplierBlockedError extends Error {
   constructor(message: string) {
@@ -57,11 +57,11 @@ export async function readAlbum(url: string): Promise<AlbumDetail> {
   const images: string[] = [];
   for (const image of root.querySelectorAll('img')) {
     const raw = image.getAttribute('data-origin-src') || image.getAttribute('data-src') || '';
-    const absolute = absolutize(raw);
-    if (!absolute || images.includes(absolute)) continue;
-    if (/logo|icon|avatar|loading/i.test(absolute)) continue;
-    images.push(absolute);
+    pushImage(images, raw);
     if (images.length >= 16) break;
+  }
+  if (!images.length) {
+    pushImage(images, root.querySelector('meta[property="og:image"]')?.getAttribute('content') || '');
   }
   return { title: title.slice(0, 240), description, images };
 }
@@ -83,18 +83,9 @@ export async function downloadImage(url: string, referer: string): Promise<Buffe
 }
 
 export function albumIdFromUrl(raw: string): AlbumRef | null {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (!url.hostname.endsWith('yupoo.com')) return null;
-  const match = url.pathname.match(/\/albums\/(\d+)/);
-  if (!match) return null;
-  url.search = '';
-  url.hash = '';
-  return { id: match[1], url: url.toString(), title: `Álbum ${match[1]}` };
+  const album = albumUrl(raw, raw);
+  if (!album) return null;
+  return { ...album, title: `Álbum ${album.id}` };
 }
 
 function parseCategory(html: string, origin: string): AlbumRef[] {
@@ -107,12 +98,8 @@ function parseCategory(html: string, origin: string): AlbumRef[] {
   for (const anchor of anchors) {
     const href = anchor.getAttribute('href') || '';
     if (!href.includes('/albums/')) continue;
-    const absolute = absolutize(href.startsWith('http') ? href : new URL(href, origin).toString());
-    if (!absolute) continue;
-    const match = absolute.match(/\/albums\/(\d+)/);
-    if (!match) continue;
-    const cleanUrl = absolute.split('?')[0];
-    if (albums.some((item) => item.id === match[1])) continue;
+    const album = albumUrl(href, origin);
+    if (!album || albums.some((item) => item.id === album.id)) continue;
     const cover = absolutize(
       anchor.querySelector('img')?.getAttribute('data-origin-src') ||
         anchor.querySelector('img')?.getAttribute('data-src') ||
@@ -120,8 +107,8 @@ function parseCategory(html: string, origin: string): AlbumRef[] {
         '',
     );
     albums.push({
-      id: match[1],
-      url: cleanUrl,
+      id: album.id,
+      url: album.url,
       title: titleFrom(anchor),
       cover: cover || undefined,
     });
@@ -156,6 +143,28 @@ async function fetchText(url: string, attempt = 1): Promise<string> {
     await sleep(700 * attempt);
     return fetchText(url, attempt + 1);
   }
+}
+
+function albumUrl(href: string, origin: string) {
+  let url: URL;
+  try {
+    url = new URL(href, origin);
+  } catch {
+    return null;
+  }
+  if (!url.hostname.endsWith('yupoo.com')) return null;
+  const match = url.pathname.match(/\/albums\/(\d+)/);
+  if (!match) return null;
+  if (!url.searchParams.has('uid')) url.searchParams.set('uid', '1');
+  url.hash = '';
+  return { id: match[1], url: url.toString() };
+}
+
+function pushImage(images: string[], raw: string) {
+  const absolute = absolutize(raw);
+  if (!absolute || images.includes(absolute)) return;
+  if (/logo|icon|avatar|loading/i.test(absolute)) return;
+  images.push(absolute);
 }
 
 function absolutize(value: string) {

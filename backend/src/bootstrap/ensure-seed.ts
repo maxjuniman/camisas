@@ -35,6 +35,8 @@ const groups: Record<string, { name: string; sortOrder?: number }[]> = {
     { name: 'G', sortOrder: 40 },
     { name: 'GG', sortOrder: 50 },
     { name: 'XG', sortOrder: 60 },
+    { name: '3G', sortOrder: 70 },
+    { name: '4G', sortOrder: 80 },
   ],
 };
 

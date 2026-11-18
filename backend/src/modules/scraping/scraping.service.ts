@@ -5,9 +5,11 @@ import { productInclude, serializeProduct } from '../../common/serialize';
 import { normalizeName, similarity, slugify } from '../../common/text';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
+import { friendlyName, parseSizeNames, sizeSortOrder } from './catalog-name';
 import { ImportUrlsDto, ReviewDto } from './dto/scraping.dto';
 import {
   AlbumRef,
+  DEFAULT_CATEGORY_URL,
   SupplierBlockedError,
   albumIdFromUrl,
   discoverAlbums,
@@ -29,6 +31,8 @@ class JobStopped extends Error {
 export class ScrapingService {
   private readonly logger = new Logger(ScrapingService.name);
   private readonly running = new Set<string>();
+  private epoch = 0;
+  private readonly jobEpoch = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -48,13 +52,18 @@ export class ScrapingService {
     return job;
   }
 
+  categoryUrl() {
+    return process.env.YUPOO_CATEGORY_URL || DEFAULT_CATEGORY_URL;
+  }
+
   async listItems(reviewStatus?: string) {
-    return this.prisma.scrapedProduct.findMany({
+    const items = await this.prisma.scrapedProduct.findMany({
       where: reviewStatus ? { reviewStatus: reviewStatus as 'PENDING' | 'APPROVED' | 'IGNORED' } : undefined,
       include: { images: { orderBy: { sortOrder: 'asc' } }, duplicates: { include: { product: true } }, changes: true },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+    return items.map((item) => this.withDisplayName(item));
   }
 
   async getItem(id: string) {
@@ -69,7 +78,7 @@ export class ScrapingService {
     });
     if (!item) throw new NotFoundException('Item não encontrado.');
     return {
-      ...item,
+      ...this.withDisplayName(item),
       linkedProduct: item.linkedProduct ? serializeProduct(item.linkedProduct) : null,
       duplicates: item.duplicates.map((candidate) => ({
         ...candidate,
@@ -79,7 +88,7 @@ export class ScrapingService {
   }
 
   async start(forced: boolean, userId: string) {
-    const job = await this.openJob(forced, process.env.YUPOO_CATEGORY_URL || 'https://minkang.x.yupoo.com/categories/680738', userId);
+    const job = await this.openJob(forced, this.categoryUrl(), userId);
     this.launch(job.id, () => this.runDiscovered(job.id, forced));
     return job;
   }
@@ -120,6 +129,28 @@ export class ScrapingService {
     return updated;
   }
 
+  async reset() {
+    this.epoch += 1;
+    await this.prisma.scrapingJob.updateMany({
+      where: { status: { in: ['QUEUED', 'RUNNING', 'PAUSED'] } },
+      data: {
+        status: 'FAILED',
+        finishedAt: new Date(),
+        errorLog: 'Importação zerada pelo administrador.',
+      },
+    });
+    await sleep(800);
+    const scraped = await this.prisma.scrapedImage.findMany({
+      select: { storageKey: true, url: true, thumbUrl: true },
+    });
+    const published = await this.prisma.productImage.findMany({
+      select: { storageKey: true, url: true, thumbUrl: true },
+    });
+    const removed = await this.prisma.scrapingJob.deleteMany();
+    await this.media.discardUnreferenced(scraped, published);
+    return { jobs: removed.count };
+  }
+
   async review(id: string, dto: ReviewDto) {
     const item = await this.prisma.scrapedProduct.findUnique({
       where: { id },
@@ -132,10 +163,11 @@ export class ScrapingService {
     if (!dto.name || dto.price == null) {
       throw new BadRequestException('Informe nome e preço para aprovar.');
     }
+    const publicName = dto.name.trim();
 
-    const slug = await this.uniqueSlug(dto.name, item.linkedProductId ?? undefined);
+    const slug = await this.uniqueSlug(publicName, item.linkedProductId ?? undefined);
     const commercial = {
-      name: dto.name.trim(),
+      name: publicName,
       slug,
       description: dto.description?.trim() ?? '',
       price: dto.price,
@@ -201,7 +233,7 @@ export class ScrapingService {
 
       await tx.scrapedProduct.update({
         where: { id },
-        data: { reviewStatus: 'APPROVED', linkedProductId: saved.id },
+        data: { reviewStatus: 'APPROVED', linkedProductId: saved.id, displayName: publicName },
       });
       await tx.scrapedProductChange.updateMany({ where: { scrapedProductId: id }, data: { applied: true } });
       return tx.product.findUniqueOrThrow({ where: { id: saved.id }, include: productInclude });
@@ -241,6 +273,7 @@ export class ScrapingService {
   }
 
   private launch(jobId: string, work: () => Promise<void>) {
+    this.jobEpoch.set(jobId, this.epoch);
     setImmediate(() => {
       void this.guard(jobId, work);
     });
@@ -256,6 +289,7 @@ export class ScrapingService {
       await this.fail(jobId, error);
     } finally {
       this.running.delete(jobId);
+      this.jobEpoch.delete(jobId);
     }
   }
 
@@ -335,6 +369,7 @@ export class ScrapingService {
             externalId: album.id,
             sourceUrl: album.url,
             rawName: album.title || album.id,
+            displayName: friendlyName(album.title || album.id),
             rawDescription: message,
             normalizedName: normalizeName(album.title || album.id),
             matchStatus: 'ERROR',
@@ -366,7 +401,9 @@ export class ScrapingService {
 
     const storedImages = await this.collectImages(detail.images, album.url, forced, byOrigin?.images ?? [], jobId);
     const coverHash = storedImages.find((image) => image.perceptualHash)?.perceptualHash ?? null;
-    const suggestions = await this.suggest(name);
+    const sizeNames = parseSizeNames(name);
+    await this.ensureSizes(sizeNames);
+    const suggestions = await this.suggest(name, sizeNames);
 
     let matchStatus: MatchStatus = 'NEW';
     let linkedProductId: string | null = byOrigin?.id ?? null;
@@ -403,6 +440,7 @@ export class ScrapingService {
         externalId: album.id,
         sourceUrl: album.url,
         rawName: name,
+        displayName: friendlyName(name),
         rawDescription: detail.description,
         normalizedName: normalized,
         suggestedTeam: suggestions.team,
@@ -504,7 +542,22 @@ export class ScrapingService {
     return suspects.slice(0, 5);
   }
 
-  private async suggest(title: string) {
+  private withDisplayName<T extends { rawName: string; displayName: string }>(item: T): T {
+    return { ...item, displayName: item.displayName || friendlyName(item.rawName) };
+  }
+
+  private async ensureSizes(names: string[]) {
+    for (const name of names) {
+      const slug = slugify(name);
+      await this.prisma.size.upsert({
+        where: { slug },
+        update: {},
+        create: { name, slug, sortOrder: sizeSortOrder(name) },
+      });
+    }
+  }
+
+  private async suggest(title: string, sizeNames: string[]) {
     const normalized = normalizeName(title);
     const [teams, genders, categories] = await Promise.all([
       this.prisma.team.findMany({ where: { isActive: true } }),
@@ -525,8 +578,7 @@ export class ScrapingService {
     else if (normalized.includes('third')) category = categories.find((item) => item.slug === 'terceira-camisa')?.name ?? null;
     else if (normalized.includes('away')) category = categories.find((item) => item.slug === 'camisa-reserva')?.name ?? null;
     else if (normalized.includes('home')) category = categories.find((item) => item.slug === 'camisa-titular')?.name ?? null;
-    const sizes = title.match(/S-\d?X{0,2}L|S-4XL|Size\s*\d+\s*-\s*\d+/i)?.[0] ?? null;
-    return { team, gender, category, sizes };
+    return { team, gender, category, sizes: sizeNames.length ? sizeNames.join(', ') : null };
   }
 
   private async uniqueSlug(name: string, ignoreId?: string) {
@@ -565,6 +617,7 @@ export class ScrapingService {
 
   private async waitIfPaused(jobId: string) {
     while (true) {
+      if (this.jobEpoch.get(jobId) !== this.epoch) return false;
       const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { status: true } });
       if (!job || job.status === 'FAILED' || job.status === 'SUCCEEDED') return false;
       if (job.status !== 'PAUSED') return true;
@@ -596,6 +649,7 @@ export class ScrapingService {
     status: 'SUCCEEDED' | 'FAILED',
   ) {
     const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId } });
+    if (!job || this.jobEpoch.get(jobId) !== this.epoch) return;
     await this.prisma.scrapingJob.update({
       where: { id: jobId },
       data: {

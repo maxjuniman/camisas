@@ -8,6 +8,7 @@ import { Product, RefItem } from '../../types';
 type ReviewItem = {
   id: string;
   rawName: string;
+  displayName: string;
   rawDescription: string;
   sourceUrl: string;
   externalId: string | null;
@@ -70,15 +71,16 @@ export function ReviewPage() {
       setLists(nextLists);
       setItem(current);
       const product = current.linkedProduct;
-      setName(product?.name || current.rawName);
+      setName(product?.name || current.displayName || current.rawName);
       setDescription(product?.description || current.rawDescription);
       setPrice(String(product?.price ?? 0));
       setTeamId(product?.team?.id || matchName(nextLists.teams, current.suggestedTeam));
-      setSportId(product?.sport?.id || '');
+      setSportId(product?.sport?.id || nextLists.sports.find((sport) => sport.slug === 'futebol')?.id || '');
       setGenderId(product?.gender?.id || matchName(nextLists.genders, current.suggestedGender));
       setCategoryId(product?.category?.id || matchName(nextLists.categories, current.suggestedCategory));
-      setSeasonId(product?.season?.id || '');
-      setSizeIds(product?.sizes.map((size) => size.id) || []);
+      setSeasonId(product?.season?.id || matchSeason(nextLists.seasons, current.rawName));
+      const suggested = new Set((current.suggestedSizes || '').split(',').map((size) => size.trim().toLowerCase()).filter(Boolean));
+      setSizeIds(product?.sizes.map((size) => size.id) || nextLists.sizes.filter((size) => suggested.has(size.name.toLowerCase())).map((size) => size.id));
       setIsActive(product?.isActive ?? true);
       setAvailableForOrder(product?.availableForOrder ?? true);
       setIsFeatured(product?.isFeatured ?? false);
@@ -157,7 +159,16 @@ export function ReviewPage() {
         </div>
       ) : null}
       <Form onSubmit={approve}>
-        <Field>Nome<Input value={name} onChange={(event) => setName(event.target.value)} required /></Field>
+        <Field>
+          Nome do fornecedor
+          <Input value={item.rawName} readOnly />
+        </Field>
+        <Field>
+          Nome no site
+          <Input value={name} onChange={(event) => setName(event.target.value)} required />
+        </Field>
+        <p>O nome no site é o que aparece no catálogo público. O nome do fornecedor fica só nesta revisão.</p>
+        <Button type="button" $tone="ghost" onClick={() => setName(item.rawName)}>Usar nome do fornecedor</Button>
         <Field>Descrição<TextArea value={description} onChange={(event) => setDescription(event.target.value)} /></Field>
         <Field>Preço<Input type="number" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} /></Field>
         <SelectField label="Time" value={teamId} setValue={setTeamId} options={lists.teams} />
@@ -190,6 +201,13 @@ export function ReviewPage() {
       </Form>
     </section>
   );
+}
+
+function matchSeason(options: RefItem[], title: string) {
+  const match = title.match(/\b(\d{2})\/(\d{2})\b/);
+  if (!match) return '';
+  const name = `20${match[1]}/${match[2]}`;
+  return options.find((item) => item.name === name)?.id || '';
 }
 
 function matchName(options: RefItem[], name: string | null) {

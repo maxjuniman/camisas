@@ -23,6 +23,8 @@ type Job = {
 type Item = {
   id: string;
   rawName: string;
+  displayName: string;
+  suggestedSizes: string | null;
   matchStatus: string;
   reviewStatus: string;
   sourceUrl: string;
@@ -48,16 +50,20 @@ export function ImportPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [urls, setUrls] = useState('');
+  const [source, setSource] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   async function load() {
-    const [jobRes, itemRes] = await Promise.all([
+    const [jobRes, itemRes, sourceRes] = await Promise.all([
       api.get<Job[]>('/admin/scraping/jobs'),
       api.get<Item[]>('/admin/scraping/items', { params: { reviewStatus: 'PENDING' } }),
+      api.get<{ url: string }>('/admin/scraping/source'),
     ]);
     setJobs(jobRes.data);
     setItems(itemRes.data);
+    setSource(sourceRes.data.url);
   }
 
   useEffect(() => {
@@ -87,6 +93,24 @@ export function ImportPage() {
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Falha ao retomar.');
+    }
+  }
+
+  async function reset() {
+    const confirmed = window.confirm(
+      'Zerar a importação apaga a fila, o histórico e os itens ainda não publicados. Produtos já aprovados no site permanecem. Continuar?',
+    );
+    if (!confirmed) return;
+    setError('');
+    setResetting(true);
+    try {
+      await api.post('/admin/scraping/reset');
+      setMessage('Importação zerada. A próxima varredura começa do zero neste grupo.');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao zerar a importação.');
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -129,7 +153,9 @@ export function ImportPage() {
         {active?.status === 'PAUSED' ? (
           <Button type="button" onClick={() => void resume(active.id)}>Retomar importação</Button>
         ) : null}
+        <Button type="button" $tone="ghost" onClick={() => void reset()} disabled={resetting}>Zerar importação</Button>
       </Actions>
+      {source ? <p>Próxima varredura: {source}</p> : null}
       {latest ? (
         <Summary>
           <p>Última execução: {new Date(latest.finishedAt || latest.createdAt).toLocaleString('pt-BR')}</p>
@@ -146,8 +172,12 @@ export function ImportPage() {
         {items.map((item) => (
           <li key={item.id}>
             <div>
-              <strong>{item.rawName}</strong>
-              <small>{statusLabel[item.matchStatus] || item.matchStatus}</small>
+              <strong>{item.displayName || item.rawName}</strong>
+              <small>
+                {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
+                {statusLabel[item.matchStatus] || item.matchStatus}
+                {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
+              </small>
             </div>
             <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
           </li>

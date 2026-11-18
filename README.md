@@ -42,7 +42,9 @@ O Vite publica o site em `http://localhost:5173` e encaminha `/api` e `/media` p
 
 - Login: `/admin/login`
 - Produtos, cadastros e importação ficam no menu depois da entrada.
-- A varredura lê a categoria pública do Yupoo configurada em `YUPOO_CATEGORY_URL`.
+- A varredura lê a categoria pública do Yupoo configurada em `YUPOO_CATEGORY_URL`. O padrão atual é o grupo menor do Grêmio.
+- Em Importação, "Zerar importação" apaga a fila e os itens ainda não publicados. Produtos já aprovados permanecem.
+- Na revisão, "Nome no site" é o texto que aparece no catálogo público. O nome do fornecedor fica só como referência.
 - Se o fornecedor bloquear a leitura, cole os links dos álbuns na mesma tela. Nada é publicado sem aprovação.
 - Preço, time, categoria, tamanhos e disponibilidade da loja não são substituídos sozinhos por uma nova coleta.
 

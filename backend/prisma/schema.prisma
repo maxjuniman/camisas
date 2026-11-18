@@ -215,6 +215,7 @@ model ScrapedProduct {
   externalId          String?
   sourceUrl           String
   rawName             String
+  displayName         String                 @default("")
   rawDescription      String                 @default("")
   normalizedName      String                 @default("")
   suggestedTeam       String?

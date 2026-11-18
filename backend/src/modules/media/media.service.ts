@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, unlink, writeFile } from 'fs/promises';
 import { join } from 'path';
 import sharp from 'sharp';
 import { perceptualHash } from '../../common/phash';
@@ -47,5 +47,36 @@ export class MediaService {
       sha256: createHash('sha256').update(buffer).digest('hex'),
       perceptualHash: await perceptualHash(buffer),
     };
+  }
+
+  async discardUnreferenced(
+    scraped: { storageKey: string | null; url: string | null; thumbUrl: string | null }[],
+    published: { storageKey: string | null; url: string | null; thumbUrl: string | null }[],
+  ) {
+    const used = new Set<string>();
+    for (const image of published) this.remember(used, image);
+    for (const image of scraped) {
+      if (image.storageKey && !used.has(image.storageKey)) {
+        await unlink(join(this.root(), image.storageKey)).catch(() => undefined);
+      }
+      for (const publicUrl of [image.url, image.thumbUrl]) {
+        const relative = this.relativeMedia(publicUrl);
+        if (!relative || used.has(relative)) continue;
+        await unlink(join(this.root(), relative)).catch(() => undefined);
+      }
+    }
+  }
+
+  private remember(used: Set<string>, image: { storageKey: string | null; url: string | null; thumbUrl: string | null }) {
+    if (image.storageKey) used.add(image.storageKey);
+    for (const publicUrl of [image.url, image.thumbUrl]) {
+      const relative = this.relativeMedia(publicUrl);
+      if (relative) used.add(relative);
+    }
+  }
+
+  private relativeMedia(publicUrl: string | null) {
+    if (!publicUrl?.startsWith('/media/')) return '';
+    return publicUrl.slice('/media/'.length);
   }
 }
