@@ -151,6 +151,95 @@ export class ScrapingService {
     return { jobs: removed.count };
   }
 
+  async approveWithoutReview(price = 0) {
+    const pending = await this.prisma.scrapedProduct.findMany({
+      where: { reviewStatus: 'PENDING' },
+      include: { images: { orderBy: { sortOrder: 'asc' } }, linkedProduct: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const [teams, sports, genders, categories, seasons, sizes] = await Promise.all([
+      this.prisma.team.findMany({ where: { isActive: true } }),
+      this.prisma.sport.findMany({ where: { isActive: true } }),
+      this.prisma.gender.findMany({ where: { isActive: true } }),
+      this.prisma.category.findMany({ where: { isActive: true } }),
+      this.prisma.season.findMany({ where: { isActive: true } }),
+      this.prisma.size.findMany({ where: { isActive: true } }),
+    ]);
+    let approved = 0;
+    let skipped = 0;
+    for (const item of pending) {
+      if (item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE') {
+        skipped += 1;
+        continue;
+      }
+      if (item.linkedProductId) {
+        await this.copyImages(item.linkedProductId, item.images, item.displayName || item.rawName);
+        await this.prisma.scrapedProduct.update({ where: { id: item.id }, data: { reviewStatus: 'APPROVED' } });
+        approved += 1;
+        continue;
+      }
+      const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
+      if (name.length < 2) {
+        skipped += 1;
+        continue;
+      }
+      const team = teams.find((entry) => entry.name.toLowerCase() === (item.suggestedTeam || '').toLowerCase());
+      const sportId = team?.sportId || sports.find((entry) => entry.slug === 'futebol')?.id;
+      const gender = genders.find((entry) => entry.name.toLowerCase() === (item.suggestedGender || '').toLowerCase());
+      const category = categories.find((entry) => entry.name.toLowerCase() === (item.suggestedCategory || '').toLowerCase());
+      const seasonMatch = item.rawName.match(/\b(\d{2})\/(\d{2})\b/);
+      const season = seasonMatch ? seasons.find((entry) => entry.name === `20${seasonMatch[1]}/${seasonMatch[2]}`) : undefined;
+      const wanted = new Set((item.suggestedSizes || '').split(',').map((size) => size.trim().toLowerCase()).filter(Boolean));
+      const sizeIds = sizes.filter((size) => wanted.has(size.name.toLowerCase())).map((size) => size.id);
+      await this.review(item.id, {
+        action: 'approve',
+        name,
+        description: item.rawDescription,
+        price,
+        teamId: team?.id,
+        sportId,
+        countryId: team?.countryId || undefined,
+        genderId: gender?.id,
+        categoryId: category?.id,
+        seasonId: season?.id,
+        sizeIds,
+        importImages: true,
+        isActive: true,
+        availableForOrder: true,
+      });
+      approved += 1;
+    }
+    return { approved, skipped };
+  }
+
+  private async copyImages(
+    productId: string,
+    images: { url: string | null; thumbUrl: string | null; storageKey: string | null; sha256: string | null; perceptualHash: string | null; sourceUrl: string }[],
+    alt: string,
+  ) {
+    const existing = await this.prisma.productImage.findMany({ where: { productId } });
+    const known = new Set(existing.map((image) => image.sha256).filter(Boolean));
+    let order = existing.length;
+    for (const image of images) {
+      if (!image.url || (image.sha256 && known.has(image.sha256))) continue;
+      await this.prisma.productImage.create({
+        data: {
+          productId,
+          storageKey: image.storageKey || image.url,
+          url: image.url,
+          thumbUrl: image.thumbUrl,
+          alt,
+          sortOrder: order,
+          isPrimary: existing.length === 0 && order === 0,
+          sha256: image.sha256,
+          perceptualHash: image.perceptualHash,
+          sourceUrl: image.sourceUrl,
+        },
+      });
+      order += 1;
+    }
+  }
+
   async review(id: string, dto: ReviewDto) {
     const item = await this.prisma.scrapedProduct.findUnique({
       where: { id },

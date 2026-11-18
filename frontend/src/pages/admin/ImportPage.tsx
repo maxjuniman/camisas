@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
-import { Button, Notice, TextArea } from '../../components/ui';
+import { Button, Input, Notice, TextArea } from '../../components/ui';
 import { api } from '../../services/api';
 
 type Job = {
@@ -54,6 +54,8 @@ export function ImportPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [price, setPrice] = useState('');
 
   async function load() {
     const [jobRes, itemRes, sourceRes] = await Promise.all([
@@ -114,6 +116,36 @@ export function ImportPage() {
     }
   }
 
+  async function approveAll() {
+    const parsed = price.trim() ? Number(price.replace(',', '.')) : 0;
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setError('Informe um preço válido ou deixe o campo em branco.');
+      return;
+    }
+    const ready = items.filter((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'SUSPECT_DUPLICATE');
+    if (!ready.length) {
+      setError('Não há itens prontos para aprovar. Erros e possíveis duplicados continuam na revisão.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Aprovar ${ready.length} itens sem abrir a revisão? O nome para o site, os tamanhos e as imagens já coletados serão usados. Erros e possíveis duplicados permanecem pendentes.`,
+    );
+    if (!confirmed) return;
+    setError('');
+    setApproving(true);
+    try {
+      const { data } = await api.post<{ approved: number; skipped: number }>('/admin/scraping/approve', {
+        price: parsed,
+      });
+      setMessage(`${data.approved} produtos aprovados. ${data.skipped} ficaram para revisão.`);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao aprovar.');
+    } finally {
+      setApproving(false);
+    }
+  }
+
   async function start(forced: boolean) {
     setError('');
     try {
@@ -168,6 +200,12 @@ export function ImportPage() {
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       <h2>Pendentes de aprovação</h2>
+      {items.length ? (
+        <Approve>
+          <Input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Preço de todos, se quiser" inputMode="decimal" />
+          <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
+        </Approve>
+      ) : <p>Nenhum item pendente.</p>}
       <List>
         {items.map((item) => (
           <li key={item.id}>
@@ -212,6 +250,7 @@ export function ImportPage() {
 }
 
 const Actions = styled.div`display: flex; gap: 8px; flex-wrap: wrap;`;
+const Approve = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 520px; input { max-width: 240px; }`;
 const Summary = styled.div`
   border: 1px solid ${({ theme }) => theme.line};
   padding: 12px;

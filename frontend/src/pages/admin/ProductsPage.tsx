@@ -6,7 +6,7 @@ import { api } from '../../services/api';
 import { formatPrice } from '../../services/whatsapp';
 import { Product, RefItem, statusLabel } from '../../types';
 
-type Page = { items: Product[]; total: number; page: number };
+type Page = { items: Product[]; total: number; page: number; pageSize: number };
 
 export function ProductsPage() {
   const [items, setItems] = useState<Product[]>([]);
@@ -18,12 +18,17 @@ export function ProductsPage() {
   const [sportId, setSportId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState('');
+  const [total, setTotal] = useState(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   async function load() {
-    const { data } = await api.get<Page>('/admin/products', { params: { q, teamId, sportId, categoryId, status } });
+    const params = Object.fromEntries(
+      Object.entries({ q, teamId, sportId, categoryId, status }).filter(([, value]) => value.trim()),
+    );
+    const { data } = await api.get<Page>('/admin/products', { params });
     setItems(data.items);
+    setTotal(data.total);
   }
 
   useEffect(() => {
@@ -75,6 +80,8 @@ export function ProductsPage() {
       </Filters>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
+      <p>{total} produtos</p>
+      {!error && items.length === 0 ? <p>Nenhum produto cadastrado.</p> : null}
       <Table>
         <thead><tr><th>Produto</th><th>Preço</th><th>Status</th><th></th></tr></thead>
         <tbody>

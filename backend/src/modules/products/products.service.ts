@@ -15,18 +15,18 @@ export class ProductsService {
 
   async list(query: AdminProductQueryDto) {
     const page = query.page && query.page > 0 ? query.page : 1;
-    const pageSize = 20;
+    const pageSize = 100;
     const where: Prisma.ProductWhereInput = {
-      teamId: query.teamId,
-      sportId: query.sportId,
-      categoryId: query.categoryId,
-      status: query.status,
-      isActive: query.isActive,
-      ...(query.q
+      ...(query.teamId ? { teamId: query.teamId } : {}),
+      ...(query.sportId ? { sportId: query.sportId } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.isActive != null ? { isActive: query.isActive } : {}),
+      ...(query.q?.trim()
         ? {
             OR: [
-              { name: { contains: query.q, mode: 'insensitive' } },
-              { externalId: { contains: query.q, mode: 'insensitive' } },
+              { name: { contains: query.q.trim(), mode: 'insensitive' } },
+              { externalId: { contains: query.q.trim(), mode: 'insensitive' } },
             ],
           }
         : {}),

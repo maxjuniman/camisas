@@ -15,6 +15,14 @@ import {
 
 const emptyToNull = ({ value }: { value: unknown }) => (value === '' || value === undefined ? undefined : value);
 
+export class ApprovePendingDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+}
+
 export class StartJobDto {
   @IsOptional()
   @IsBoolean()

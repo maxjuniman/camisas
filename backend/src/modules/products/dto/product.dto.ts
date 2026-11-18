@@ -13,6 +13,7 @@ import {
 import { ProductStatus } from '@prisma/client';
 
 const emptyToNull = ({ value }: { value: unknown }) => (value === '' || value === undefined ? null : value);
+const blankToUndefined = ({ value }: { value: unknown }) => (value === '' || value === null || value === undefined ? undefined : value);
 
 export class UpsertProductDto {
   @IsString()
@@ -114,22 +115,27 @@ export class PatchFlagsDto {
 
 export class AdminProductQueryDto {
   @IsOptional()
+  @Transform(blankToUndefined)
   @IsString()
   q?: string;
 
   @IsOptional()
+  @Transform(blankToUndefined)
   @IsUUID()
   teamId?: string;
 
   @IsOptional()
+  @Transform(blankToUndefined)
   @IsUUID()
   sportId?: string;
 
   @IsOptional()
+  @Transform(blankToUndefined)
   @IsUUID()
   categoryId?: string;
 
   @IsOptional()
+  @Transform(blankToUndefined)
   @IsEnum(ProductStatus)
   status?: ProductStatus;
 

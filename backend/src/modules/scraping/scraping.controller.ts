@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } fro
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { ImportUrlsDto, ReviewDto, StartJobDto } from './dto/scraping.dto';
+import { ApprovePendingDto, ImportUrlsDto, ReviewDto, StartJobDto } from './dto/scraping.dto';
 import { ScrapingService } from './scraping.service';
 
 type AuthRequest = Request & { user: { id: string } };
@@ -56,6 +56,11 @@ export class ScrapingController {
   @Post('reset')
   reset() {
     return this.scraping.reset();
+  }
+
+  @Post('approve')
+  approvePending(@Body() dto: ApprovePendingDto) {
+    return this.scraping.approveWithoutReview(dto.price ?? 0);
   }
 
   @Post('import')
