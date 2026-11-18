@@ -18,9 +18,17 @@ import {
 const NAME_THRESHOLD = 0.88;
 const IMAGE_THRESHOLD = 10;
 
+class JobStopped extends Error {
+  constructor() {
+    super('Importação interrompida.');
+    this.name = 'JobStopped';
+  }
+}
+
 @Injectable()
 export class ScrapingService {
   private readonly logger = new Logger(ScrapingService.name);
+  private readonly running = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -72,9 +80,7 @@ export class ScrapingService {
 
   async start(forced: boolean, userId: string) {
     const job = await this.openJob(forced, process.env.YUPOO_CATEGORY_URL || 'https://minkang.x.yupoo.com/categories/680738', userId);
-    setImmediate(() => {
-      this.runDiscovered(job.id, forced).catch((error) => this.fail(job.id, error));
-    });
+    this.launch(job.id, () => this.runDiscovered(job.id, forced));
     return job;
   }
 
@@ -85,10 +91,33 @@ export class ScrapingService {
       return parsed;
     });
     const job = await this.openJob(true, 'importacao-manual', userId);
-    setImmediate(() => {
-      this.runAlbums(job.id, albums, true).catch((error) => this.fail(job.id, error));
+    await this.prisma.scrapingJob.update({
+      where: { id: job.id },
+      data: { queue: albums as unknown as Prisma.InputJsonValue, foundCount: albums.length, cursor: 0 },
     });
+    this.launch(job.id, () => this.runAlbums(job.id, albums, true, true));
     return job;
+  }
+
+  async pause(id: string) {
+    const job = await this.prisma.scrapingJob.findUnique({ where: { id } });
+    if (!job) throw new NotFoundException('Varredura não encontrada.');
+    if (job.status !== 'RUNNING' && job.status !== 'QUEUED') {
+      throw new ConflictException('Só é possível pausar uma importação em execução.');
+    }
+    return this.prisma.scrapingJob.update({ where: { id }, data: { status: 'PAUSED' } });
+  }
+
+  async resume(id: string) {
+    const job = await this.prisma.scrapingJob.findUnique({ where: { id } });
+    if (!job) throw new NotFoundException('Varredura não encontrada.');
+    if (job.status !== 'PAUSED') throw new ConflictException('Essa importação não está pausada.');
+    const updated = await this.prisma.scrapingJob.update({
+      where: { id },
+      data: { status: 'RUNNING', finishedAt: null },
+    });
+    if (!this.running.has(id)) this.launch(id, () => this.continuePaused(id));
+    return updated;
   }
 
   async review(id: string, dto: ReviewDto) {
@@ -196,7 +225,10 @@ export class ScrapingService {
     });
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const active = await tx.scrapingJob.findFirst({ where: { status: { in: ['QUEUED', 'RUNNING'] } } });
+        const active = await tx.scrapingJob.findFirst({ where: { status: { in: ['QUEUED', 'RUNNING', 'PAUSED'] } } });
+        if (active?.status === 'PAUSED') {
+          throw new ConflictException('Há uma importação pausada. Retome essa execução antes de iniciar outra.');
+        }
         if (active) throw new ConflictException('Já existe uma varredura em execução.');
         return tx.scrapingJob.create({
           data: { status: 'QUEUED', forced, sourceUrl, triggeredById: userId },
@@ -208,29 +240,88 @@ export class ScrapingService {
     }
   }
 
+  private launch(jobId: string, work: () => Promise<void>) {
+    setImmediate(() => {
+      void this.guard(jobId, work);
+    });
+  }
+
+  private async guard(jobId: string, work: () => Promise<void>) {
+    if (this.running.has(jobId)) return;
+    this.running.add(jobId);
+    try {
+      await work();
+    } catch (error) {
+      if (error instanceof JobStopped) return;
+      await this.fail(jobId, error);
+    } finally {
+      this.running.delete(jobId);
+    }
+  }
+
   private async runDiscovered(jobId: string, forced: boolean) {
+    if (!(await this.waitIfPaused(jobId))) return;
     await this.prisma.scrapingJob.update({
       where: { id: jobId },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
-    const albums = await discoverAlbums();
-    await this.prisma.scrapingJob.update({ where: { id: jobId }, data: { foundCount: albums.length } });
+    const albums = await discoverAlbums(() => this.waitIfPaused(jobId));
+    if (!albums) return;
+    await this.prisma.scrapingJob.update({
+      where: { id: jobId },
+      data: { queue: albums as unknown as Prisma.InputJsonValue, foundCount: albums.length, cursor: 0 },
+    });
     await this.runAlbums(jobId, albums, forced, true);
   }
 
-  private async runAlbums(jobId: string, albums: AlbumRef[], forced: boolean, alreadyRunning = false) {
+  private async continuePaused(jobId: string) {
+    const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId } });
+    if (!job || job.status !== 'RUNNING') return;
+    const stored = this.readQueue(job.queue);
+    if (!stored) {
+      await this.runDiscovered(jobId, job.forced);
+      return;
+    }
+    const notes = job.errorLog ? job.errorLog.split('\n').filter(Boolean) : [];
+    await this.runAlbums(
+      jobId,
+      stored,
+      job.forced,
+      true,
+      job.cursor,
+      {
+        created: job.newCount,
+        existing: job.existingCount,
+        changed: job.changedCount,
+        suspect: job.duplicateSuspectCount,
+        errors: job.errorCount,
+      },
+      notes,
+    );
+  }
+
+  private async runAlbums(
+    jobId: string,
+    albums: AlbumRef[],
+    forced: boolean,
+    alreadyRunning = false,
+    startIndex = 0,
+    counts = { created: 0, existing: 0, changed: 0, suspect: 0, errors: 0 },
+    notes: string[] = [],
+  ) {
     if (!alreadyRunning) {
       await this.prisma.scrapingJob.update({
         where: { id: jobId },
         data: { status: 'RUNNING', startedAt: new Date(), foundCount: albums.length },
       });
     }
-    const counts = { created: 0, existing: 0, changed: 0, suspect: 0, errors: 0 };
-    const notes: string[] = [];
-    for (const album of albums) {
+    for (let index = startIndex; index < albums.length; index += 1) {
+      if (!(await this.waitIfPaused(jobId))) return;
+      const album = albums[index];
       try {
         await this.ingest(jobId, album, forced, counts);
       } catch (error) {
+        if (error instanceof JobStopped) return;
         counts.errors += 1;
         const message = error instanceof Error ? error.message : 'Erro desconhecido';
         notes.push(`${album.url}: ${message}`);
@@ -251,7 +342,8 @@ export class ScrapingService {
           },
         });
       }
-      await this.touch(jobId, albums.length, counts, notes);
+      await this.touch(jobId, albums.length, counts, notes, index + 1);
+      if (!(await this.waitIfPaused(jobId))) return;
       await sleep(900);
     }
     await this.finish(jobId, counts, notes, 'SUCCEEDED');
@@ -263,6 +355,7 @@ export class ScrapingService {
     forced: boolean,
     counts: { created: number; existing: number; changed: number; suspect: number; errors: number },
   ) {
+    if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
     const detail = await readAlbum(album.url);
     const name = detail.title || album.title;
     const normalized = normalizeName(name);
@@ -271,7 +364,7 @@ export class ScrapingService {
       include: { images: true },
     });
 
-    const storedImages = await this.collectImages(detail.images, album.url, forced, byOrigin?.images ?? []);
+    const storedImages = await this.collectImages(detail.images, album.url, forced, byOrigin?.images ?? [], jobId);
     const coverHash = storedImages.find((image) => image.perceptualHash)?.perceptualHash ?? null;
     const suggestions = await this.suggest(name);
 
@@ -349,6 +442,7 @@ export class ScrapingService {
     referer: string,
     forced: boolean,
     existing: { sourceUrl: string | null; storageKey: string; url: string; thumbUrl: string | null; sha256: string | null; perceptualHash: string | null }[],
+    jobId: string,
   ) {
     const saved: {
       sourceUrl: string;
@@ -359,6 +453,7 @@ export class ScrapingService {
       perceptualHash: string | null;
     }[] = [];
     for (const sourceUrl of urls) {
+      if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
       const previous = existing.find((image) => image.sourceUrl === sourceUrl);
       if (previous && !forced) {
         saved.push({
@@ -451,6 +546,7 @@ export class ScrapingService {
     foundCount: number,
     counts: { created: number; existing: number; changed: number; suspect: number; errors: number },
     notes: string[],
+    cursor?: number,
   ) {
     await this.prisma.scrapingJob.update({
       where: { id: jobId },
@@ -462,8 +558,35 @@ export class ScrapingService {
         duplicateSuspectCount: counts.suspect,
         errorCount: counts.errors,
         errorLog: notes.join('\n').slice(0, 20000),
+        cursor,
       },
     });
+  }
+
+  private async waitIfPaused(jobId: string) {
+    while (true) {
+      const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { status: true } });
+      if (!job || job.status === 'FAILED' || job.status === 'SUCCEEDED') return false;
+      if (job.status !== 'PAUSED') return true;
+      await sleep(1000);
+    }
+  }
+
+  private readQueue(value: Prisma.JsonValue | null): AlbumRef[] | null {
+    if (!Array.isArray(value) || value.length === 0) return null;
+    const albums: AlbumRef[] = [];
+    for (const item of value) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      const row = item as Record<string, unknown>;
+      if (typeof row.id !== 'string' || typeof row.url !== 'string' || typeof row.title !== 'string') return null;
+      albums.push({
+        id: row.id,
+        url: row.url,
+        title: row.title,
+        cover: typeof row.cover === 'string' ? row.cover : undefined,
+      });
+    }
+    return albums;
   }
 
   private async finish(

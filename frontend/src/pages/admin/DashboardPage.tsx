@@ -46,10 +46,18 @@ export function DashboardPage() {
           </article>
         ))}
       </Cards>
-      <p>Última execução: {data.lastScanAt ? new Date(data.lastScanAt).toLocaleString('pt-BR') : 'ainda não houve'} {data.lastScanStatus ? `· ${data.lastScanStatus}` : ''}</p>
+      <p>Última execução: {data.lastScanAt ? new Date(data.lastScanAt).toLocaleString('pt-BR') : 'ainda não houve'} {data.lastScanStatus ? `· ${scanStatus[data.lastScanStatus] || data.lastScanStatus}` : ''}</p>
     </section>
   );
 }
+
+const scanStatus: Record<string, string> = {
+  QUEUED: 'Na fila',
+  RUNNING: 'Em execução',
+  PAUSED: 'Pausada',
+  SUCCEEDED: 'Concluída',
+  FAILED: 'Falhou',
+};
 
 const Cards = styled.div`
   display: grid;

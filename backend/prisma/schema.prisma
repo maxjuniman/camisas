@@ -21,6 +21,7 @@ enum ProductStatus {
 enum JobStatus {
   QUEUED
   RUNNING
+  PAUSED
   SUCCEEDED
   FAILED
 }
@@ -198,6 +199,8 @@ model ScrapingJob {
   duplicateSuspectCount Int              @default(0)
   errorCount            Int              @default(0)
   errorLog              String           @default("")
+  cursor                Int              @default(0)
+  queue                 Json?
   triggeredById         String?
   triggeredBy           User?            @relation(fields: [triggeredById], references: [id])
   items                 ScrapedProduct[]

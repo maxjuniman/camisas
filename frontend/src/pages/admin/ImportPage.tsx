@@ -11,6 +11,7 @@ type Job = {
   createdAt: string;
   finishedAt: string | null;
   foundCount: number;
+  cursor: number;
   newCount: number;
   existingCount: number;
   changedCount: number;
@@ -30,6 +31,7 @@ type Item = {
 const statusLabel: Record<string, string> = {
   QUEUED: 'Na fila',
   RUNNING: 'Em execução',
+  PAUSED: 'Pausada',
   SUCCEEDED: 'Concluída',
   FAILED: 'Falhou',
   NEW: 'Novo',
@@ -66,6 +68,28 @@ export function ImportPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  async function pause(id: string) {
+    setError('');
+    try {
+      await api.post(`/admin/scraping/jobs/${id}/pause`);
+      setMessage('Importação pausada. O álbum em leitura termina e a fila fica parada.');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao pausar.');
+    }
+  }
+
+  async function resume(id: string) {
+    setError('');
+    try {
+      await api.post(`/admin/scraping/jobs/${id}/resume`);
+      setMessage('Importação retomada.');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao retomar.');
+    }
+  }
+
   async function start(forced: boolean) {
     setError('');
     try {
@@ -91,19 +115,26 @@ export function ImportPage() {
   }
 
   const latest = jobs[0];
+  const active = jobs.find((job) => job.status === 'RUNNING' || job.status === 'QUEUED' || job.status === 'PAUSED');
 
   return (
     <section>
       <h1>Importação de produtos</h1>
       <Actions>
-        <Button type="button" onClick={() => void start(false)}>Iniciar varredura</Button>
-        <Button type="button" $tone="ink" onClick={() => void start(true)}>Forçar nova varredura</Button>
+        <Button type="button" onClick={() => void start(false)} disabled={Boolean(active)}>Iniciar varredura</Button>
+        <Button type="button" $tone="ink" onClick={() => void start(true)} disabled={Boolean(active)}>Forçar nova varredura</Button>
+        {active && active.status !== 'PAUSED' ? (
+          <Button type="button" $tone="ghost" onClick={() => void pause(active.id)}>Pausar importação</Button>
+        ) : null}
+        {active?.status === 'PAUSED' ? (
+          <Button type="button" onClick={() => void resume(active.id)}>Retomar importação</Button>
+        ) : null}
       </Actions>
       {latest ? (
         <Summary>
           <p>Última execução: {new Date(latest.finishedAt || latest.createdAt).toLocaleString('pt-BR')}</p>
           <p>Status: {statusLabel[latest.status] || latest.status}</p>
-          <p>Encontrados: {latest.foundCount} · Novos: {latest.newCount} · Existentes: {latest.existingCount}</p>
+          <p>Progresso: {latest.cursor} de {latest.foundCount} · Novos: {latest.newCount} · Existentes: {latest.existingCount}</p>
           <p>Alterações: {latest.changedCount} · Possíveis duplicados: {latest.duplicateSuspectCount} · Erros: {latest.errorCount}</p>
           {latest.errorLog ? <pre>{latest.errorLog}</pre> : null}
         </Summary>

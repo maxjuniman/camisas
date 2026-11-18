@@ -38,6 +38,16 @@ export class ScrapingController {
     return this.scraping.start(Boolean(dto.forced), request.user.id);
   }
 
+  @Post('jobs/:id/pause')
+  pause(@Param('id') id: string) {
+    return this.scraping.pause(id);
+  }
+
+  @Post('jobs/:id/resume')
+  resume(@Param('id') id: string) {
+    return this.scraping.resume(id);
+  }
+
   @Post('import')
   importUrls(@Body() dto: ImportUrlsDto, @Req() request: AuthRequest) {
     return this.scraping.importUrls(dto, request.user.id);

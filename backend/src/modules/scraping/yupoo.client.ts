@@ -24,10 +24,11 @@ export type AlbumDetail = {
   images: string[];
 };
 
-export async function discoverAlbums(): Promise<AlbumRef[]> {
+export async function discoverAlbums(canContinue?: () => Promise<boolean>): Promise<AlbumRef[] | null> {
   const first = new URL(CATEGORY_URL());
   const seen = new Map<string, AlbumRef>();
   for (let page = 1; page <= 40; page += 1) {
+    if (canContinue && !(await canContinue())) return null;
     const url = new URL(first.toString());
     if (page > 1) url.searchParams.set('page', String(page));
     const html = await fetchText(url.toString());
