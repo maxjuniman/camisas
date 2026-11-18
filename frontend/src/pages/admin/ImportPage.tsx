@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { useDialog } from '../../components/dialog';
@@ -9,6 +9,7 @@ import { api } from '../../services/api';
 type Job = {
   id: string;
   status: string;
+  sourceUrl: string;
   forced: boolean;
   createdAt: string;
   finishedAt: string | null;
@@ -60,6 +61,7 @@ export function ImportPage() {
   const [resetting, setResetting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [price, setPrice] = useState('');
+  const [openJobId, setOpenJobId] = useState<string | null>(null);
   const dialog = useDialog();
 
   async function load() {
@@ -246,16 +248,6 @@ export function ImportPage() {
           </form>
         </Modal>
       ) : null}
-      {source ? <p>Próxima varredura: {source}</p> : null}
-      {latest ? (
-        <Summary>
-          <p>Última execução: {new Date(latest.finishedAt || latest.createdAt).toLocaleString('pt-BR')}</p>
-          <p>Status: {statusLabel[latest.status] || latest.status}</p>
-          <p>Progresso: {latest.cursor} de {latest.foundCount} · Novos: {latest.newCount} · Existentes: {latest.existingCount}</p>
-          <p>Alterações: {latest.changedCount} · Possíveis duplicados: {latest.duplicateSuspectCount} · Erros: {latest.errorCount}</p>
-          {latest.errorLog ? <pre>{latest.errorLog}</pre> : null}
-        </Summary>
-      ) : <p>Nenhuma varredura executada.</p>}
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       {items.length ? (
@@ -292,24 +284,47 @@ export function ImportPage() {
         <p>{latest && !active && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
       )}
       <h2>Histórico</h2>
-      <table>
-        <thead>
-          <tr><th>Data</th><th>Status</th><th>Encontrados</th><th>Novos</th><th>Duplicados</th><th>Alterações</th><th>Erros</th></tr>
-        </thead>
-        <tbody>
-          {jobs.map((job) => (
-            <tr key={job.id}>
-              <td>{new Date(job.createdAt).toLocaleString('pt-BR')}</td>
-              <td>{statusLabel[job.status] || job.status}</td>
-              <td>{job.foundCount}</td>
-              <td>{job.newCount}</td>
-              <td>{job.duplicateSuspectCount}</td>
-              <td>{job.changedCount}</td>
-              <td>{job.errorCount}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {jobs.length ? (
+        <table>
+          <thead>
+            <tr><th>Data</th><th>Status</th><th>Encontrados</th><th>Novos</th><th>Duplicados</th><th>Alterações</th><th>Erros</th><th></th></tr>
+          </thead>
+          <tbody>
+            {jobs.map((job) => (
+              <Fragment key={job.id}>
+                <tr>
+                  <td>{new Date(job.createdAt).toLocaleString('pt-BR')}</td>
+                  <td>{statusLabel[job.status] || job.status}</td>
+                  <td>{job.foundCount}</td>
+                  <td>{job.newCount}</td>
+                  <td>{job.duplicateSuspectCount}</td>
+                  <td>{job.changedCount}</td>
+                  <td>{job.errorCount}</td>
+                  <td>
+                    <DetailsButton type="button" onClick={() => setOpenJobId((current) => current === job.id ? null : job.id)}>
+                      {openJobId === job.id ? 'Fechar' : 'Detalhes'}
+                    </DetailsButton>
+                  </td>
+                </tr>
+                {openJobId === job.id ? (
+                  <tr key={`${job.id}-details`}>
+                    <td colSpan={8}>
+                      <Summary>
+                        {job.sourceUrl ? <p>Link: {job.sourceUrl}</p> : null}
+                        <p>Execução: {new Date(job.finishedAt || job.createdAt).toLocaleString('pt-BR')}</p>
+                        <p>Status: {statusLabel[job.status] || job.status}</p>
+                        <p>Progresso: {job.cursor} de {job.foundCount} · Novos: {job.newCount} · Existentes: {job.existingCount}</p>
+                        <p>Alterações: {job.changedCount} · Possíveis duplicados: {job.duplicateSuspectCount} · Erros: {job.errorCount}</p>
+                        {job.errorLog ? <pre>{job.errorLog}</pre> : null}
+                      </Summary>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      ) : <p>Nenhuma varredura executada.</p>}
     </section>
   );
 }
@@ -328,11 +343,21 @@ function groupItems(items: Item[]) {
 const Actions = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center;`;
 const TeamName = styled.h3`margin: 18px 0 0; font-size: 18px;`;
 const Approve = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 520px; input { max-width: 240px; }`;
+const DetailsButton = styled.button`
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: ${({ theme }) => theme.ink};
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+`;
 const Summary = styled.div`
   border: 1px solid ${({ theme }) => theme.line};
   padding: 12px;
-  background: ${({ theme }) => theme.paperRaised};
-  pre { white-space: pre-wrap; font-size: 12px; }
+  background: ${({ theme }) => theme.paper};
+  p { margin: 0 0 6px; overflow-wrap: anywhere; }
+  pre { white-space: pre-wrap; font-size: 12px; margin: 0; }
 `;
 const List = styled.ul`
   list-style: none; padding: 0;
