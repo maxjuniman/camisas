@@ -1,0 +1,16 @@
+export const theme = {
+  ink: '#121418',
+  inkSoft: '#1C2128',
+  paper: '#F3EEE6',
+  paperRaised: '#FBF8F2',
+  line: '#DDD4C6',
+  text: '#17191D',
+  muted: '#6E675E',
+  accent: '#D83A2C',
+  accentInk: '#FFF8F4',
+  good: '#1C7A4A',
+  warn: '#8A6410',
+  white: '#FFFCFA',
+  display: "'Barlow Condensed', sans-serif",
+  body: "'Outfit', sans-serif",
+};

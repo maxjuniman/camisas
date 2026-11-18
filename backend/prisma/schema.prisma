@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+}
+
+enum ProductStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  IGNORED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum MatchStatus {
+  NEW
+  EXISTING
+  CHANGED
+  SUSPECT_DUPLICATE
+  ERROR
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  IGNORED
+}
+
+enum DuplicateReason {
+  NAME
+  IMAGE
+  BOTH
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  name         String
+  role         UserRole      @default(ADMIN)
+  scrapingJobs ScrapingJob[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Team {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Sport {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Gender {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Season {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Size {
+  id        String        @id @default(uuid())
+  name      String
+  slug      String        @unique
+  sortOrder Int           @default(0)
+  isActive  Boolean       @default(true)
+  products  ProductSize[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model Product {
+  id                  String               @id @default(uuid())
+  name                String
+  slug                String               @unique
+  description         String               @default("")
+  price               Decimal              @default(0) @db.Decimal(10, 2)
+  teamId              String?
+  team                Team?                @relation(fields: [teamId], references: [id])
+  sportId             String?
+  sport               Sport?               @relation(fields: [sportId], references: [id])
+  genderId            String?
+  gender              Gender?              @relation(fields: [genderId], references: [id])
+  categoryId          String?
+  category            Category?            @relation(fields: [categoryId], references: [id])
+  seasonId            String?
+  season              Season?              @relation(fields: [seasonId], references: [id])
+  status              ProductStatus        @default(DRAFT)
+  isActive            Boolean              @default(false)
+  availableForOrder   Boolean              @default(false)
+  isFeatured          Boolean              @default(false)
+  isLaunch            Boolean              @default(false)
+  availabilityNote    String               @default("")
+  orderNote           String               @default("")
+  sourceUrl           String?              @unique
+  externalId          String?              @unique
+  normalizedName      String               @default("")
+  images              ProductImage[]
+  sizes               ProductSize[]
+  scrapedItems        ScrapedProduct[]
+  duplicateCandidates DuplicateCandidate[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([status, isActive, availableForOrder])
+  @@index([normalizedName])
+}
+
+model ProductImage {
+  id             String   @id @default(uuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  storageKey     String
+  url            String
+  thumbUrl       String?
+  alt            String   @default("")
+  sortOrder      Int      @default(0)
+  isPrimary      Boolean  @default(false)
+  sha256         String?
+  perceptualHash String?
+  sourceUrl      String?
+  createdAt      DateTime @default(now())
+}
+
+model ProductSize {
+  productId String
+  sizeId    String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size      Size    @relation(fields: [sizeId], references: [id])
+
+  @@id([productId, sizeId])
+}
+
+model ScrapingJob {
+  id                    String           @id @default(uuid())
+  status                JobStatus        @default(QUEUED)
+  forced                Boolean          @default(false)
+  sourceUrl             String
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  foundCount            Int              @default(0)
+  newCount              Int              @default(0)
+  existingCount         Int              @default(0)
+  changedCount          Int              @default(0)
+  duplicateSuspectCount Int              @default(0)
+  errorCount            Int              @default(0)
+  errorLog              String           @default("")
+  triggeredById         String?
+  triggeredBy           User?            @relation(fields: [triggeredById], references: [id])
+  items                 ScrapedProduct[]
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+}
+
+model ScrapedProduct {
+  id                  String                 @id @default(uuid())
+  jobId               String
+  job                 ScrapingJob            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  externalId          String?
+  sourceUrl           String
+  rawName             String
+  rawDescription      String                 @default("")
+  normalizedName      String                 @default("")
+  suggestedTeam       String?
+  suggestedGender     String?
+  suggestedCategory   String?
+  suggestedSizes      String?
+  coverPerceptualHash String?
+  matchStatus         MatchStatus            @default(NEW)
+  reviewStatus        ReviewStatus           @default(PENDING)
+  linkedProductId     String?
+  linkedProduct       Product?               @relation(fields: [linkedProductId], references: [id], onDelete: SetNull)
+  images              ScrapedImage[]
+  changes             ScrapedProductChange[]
+  duplicates          DuplicateCandidate[]
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@index([externalId])
+  @@index([reviewStatus])
+  @@index([jobId])
+}
+
+model ScrapedImage {
+  id               String         @id @default(uuid())
+  scrapedProductId String
+  scrapedProduct   ScrapedProduct @relation(fields: [scrapedProductId], references: [id], onDelete: Cascade)
+  sourceUrl        String
+  storageKey       String?
+  url              String?
+  thumbUrl         String?
+  sha256           String?
+  perceptualHash   String?
+  sortOrder        Int            @default(0)
+  createdAt        DateTime       @default(now())
+}
+
+model ScrapedProductChange {
+  id               String         @id @default(uuid())
+  scrapedProductId String
+  scrapedProduct   ScrapedProduct @relation(fields: [scrapedProductId], references: [id], onDelete: Cascade)
+  field            String
+  previousValue    String         @default("")
+  nextValue        String         @default("")
+  applied          Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+}
+
+model DuplicateCandidate {
+  id               String          @id @default(uuid())
+  scrapedProductId String
+  scrapedProduct   ScrapedProduct  @relation(fields: [scrapedProductId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  reason           DuplicateReason
+  score            Float
+  resolved         Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+
+  @@index([scrapedProductId])
+}
