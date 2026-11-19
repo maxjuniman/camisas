@@ -18,24 +18,7 @@ export class ProductsService {
   async list(query: AdminProductQueryDto) {
     const page = query.page && query.page > 0 ? query.page : 1;
     const pageSize = 100;
-    const where: Prisma.ProductWhereInput = {
-      ...(query.teamId ? { teamId: query.teamId } : {}),
-      ...(query.sportId ? { sportId: query.sportId } : {}),
-      ...(query.countryId ? { countryId: query.countryId } : {}),
-      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
-      ...(query.national === true ? { team: { isNational: true } } : {}),
-      ...(query.national === false ? { team: { isNational: false } } : {}),
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.isActive != null ? { isActive: query.isActive } : {}),
-      ...(query.q?.trim()
-        ? {
-            OR: [
-              { name: { contains: query.q.trim(), mode: 'insensitive' } },
-              { externalId: { contains: query.q.trim(), mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
+    const where = this.productWhere(query);
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
       this.prisma.product.findMany({
@@ -87,24 +70,21 @@ export class ProductsService {
   }
 
   async bulk(dto: BulkEditDto) {
-    if (!dto.sportId && !dto.countryId && !dto.categoryId && !dto.teamId && !dto.translateNames) {
+    if (dto.price == null && !dto.sportId && !dto.countryId && !dto.categoryId && !dto.teamId && !dto.translateNames) {
       throw new BadRequestException('Escolha o que deseja alterar.');
     }
     if (dto.scope === 'ids' && !dto.ids?.length) throw new BadRequestException('Selecione ao menos um produto.');
     const where: Prisma.ProductWhereInput = dto.scope === 'ids'
       ? { id: { in: dto.ids } }
-      : {
-          ...(dto.filterTeamId ? { teamId: dto.filterTeamId } : {}),
-          ...(dto.filterSportId ? { sportId: dto.filterSportId } : {}),
-          ...(dto.filterCountryId ? { countryId: dto.filterCountryId } : {}),
-          ...(dto.filterCategoryId ? { categoryId: dto.filterCategoryId } : {}),
-          ...(dto.national === true ? { team: { isNational: true } } : {}),
-          ...(dto.national === false ? { team: { isNational: false } } : {}),
-          ...(dto.status ? { status: dto.status } : {}),
-          ...(dto.q?.trim()
-            ? { OR: [{ name: { contains: dto.q.trim(), mode: 'insensitive' } }, { externalId: { contains: dto.q.trim(), mode: 'insensitive' } }] }
-            : {}),
-        };
+      : this.productWhere({
+          q: dto.q,
+          teamId: dto.filterTeamId,
+          sportId: dto.filterSportId,
+          countryId: dto.filterCountryId,
+          categoryId: dto.filterCategoryId,
+          status: dto.status,
+          national: dto.national,
+        });
     const products = await this.prisma.product.findMany({
       where,
       select: {
@@ -127,6 +107,7 @@ export class ProductsService {
     let updated = 0;
     for (const product of products) {
       const data: Prisma.ProductUpdateInput = {};
+      if (dto.price != null) data.price = dto.price;
       if (dto.sportId) data.sport = { connect: { id: dto.sportId } };
       if (dto.countryId) data.country = { connect: { id: dto.countryId } };
       if (dto.categoryId) data.category = { connect: { id: dto.categoryId } };
@@ -242,6 +223,40 @@ export class ProductsService {
       this.prisma.productImage.update({ where: { id: imageId }, data: { isPrimary: true } }),
     ]);
     return this.get(id);
+  }
+
+  private productWhere(query: {
+    q?: string;
+    teamId?: string;
+    sportId?: string;
+    countryId?: string;
+    categoryId?: string;
+    status?: ProductStatus;
+    isActive?: boolean;
+    national?: boolean;
+  }): Prisma.ProductWhereInput {
+    const and: Prisma.ProductWhereInput[] = [];
+    if (query.sportId) and.push({ OR: [{ sportId: query.sportId }, { team: { sportId: query.sportId } }] });
+    if (query.countryId) and.push({ OR: [{ countryId: query.countryId }, { team: { countryId: query.countryId } }] });
+    const text = query.q?.trim();
+    if (text) {
+      and.push({
+        OR: [
+          { name: { contains: text, mode: 'insensitive' } },
+          { externalId: { contains: text, mode: 'insensitive' } },
+          { team: { name: { contains: text, mode: 'insensitive' } } },
+        ],
+      });
+    }
+    return {
+      ...(query.teamId ? { teamId: query.teamId } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.national === true ? { team: { isNational: true } } : {}),
+      ...(query.national === false ? { team: { isNational: false } } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.isActive != null ? { isActive: query.isActive } : {}),
+      ...(and.length ? { AND: and } : {}),
+    };
   }
 
   private data(dto: UpsertProductDto) {

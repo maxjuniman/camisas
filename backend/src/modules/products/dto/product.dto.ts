@@ -228,6 +228,12 @@ export class BulkEditDto {
   teamId?: string;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @IsOptional()
   @IsBoolean()
   translateNames?: boolean;
 }

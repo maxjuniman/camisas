@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { useDialog } from '../../components/dialog';
@@ -32,16 +32,22 @@ export function ProductsPage() {
   const [bulkCountryId, setBulkCountryId] = useState('');
   const [bulkCategoryId, setBulkCategoryId] = useState('');
   const [bulkTeamId, setBulkTeamId] = useState('');
-  const [translateNames, setTranslateNames] = useState(true);
+  const [bulkPrice, setBulkPrice] = useState('');
+  const [translateNames, setTranslateNames] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const requestId = useRef(0);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const dialog = useDialog();
 
   async function load(nextPage = page) {
+    const current = ++requestId.current;
+    setLoading(true);
+    setError('');
     const params = Object.fromEntries(
       Object.entries({
-        q,
+        q: q.trim(),
         teamId: selectionId && selectionId !== '*' ? selectionId : teamId,
         sportId,
         countryId,
@@ -51,15 +57,20 @@ export function ProductsPage() {
         page: String(nextPage),
       }).filter(([, value]) => value.trim()),
     );
-    const { data } = await api.get<Page>('/admin/products', { params });
-    const size = data.pageSize || 100;
-    const last = Math.max(1, Math.ceil(data.total / size));
-    if (nextPage > last) return load(last);
-    setItems(data.items);
-    setTotal(data.total);
-    setPage(data.page);
-    setPageSize(size);
-    setPicked([]);
+    try {
+      const { data } = await api.get<Page>('/admin/products', { params });
+      if (current !== requestId.current) return;
+      const size = data.pageSize || 100;
+      const last = Math.max(1, Math.ceil(data.total / size));
+      if (nextPage > last) return load(last);
+      setItems(data.items);
+      setTotal(data.total);
+      setPage(data.page || nextPage);
+      setPageSize(size);
+      setPicked([]);
+    } finally {
+      if (current === requestId.current) setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -91,9 +102,7 @@ export function ProductsPage() {
     await load();
   }
 
-  const visibleCountries = sportId
-    ? countries.filter((country) => teams.some((team) => team.sportId === sportId && team.countryId === country.id))
-    : countries;
+  const visibleCountries = countries;
   const matchesScope = (team: RefItem) => (!sportId || team.sportId === sportId) && (!countryId || team.countryId === countryId);
   const visibleTeams = teams.filter((team) => !team.isNational && matchesScope(team));
   const visibleSelections = teams.filter((team) => team.isNational && matchesScope(team));
@@ -107,14 +116,9 @@ export function ProductsPage() {
   }
 
   function changeSport(value: string) {
-    const nextCountries = value
-      ? countries.filter((country) => teams.some((team) => team.sportId === value && team.countryId === country.id))
-      : countries;
-    const nextCountry = countryId && nextCountries.some((country) => country.id === countryId) ? countryId : '';
     setSportId(value);
-    setCountryId(nextCountry);
-    setTeamId((current) => keepTeam(current, value, nextCountry, false));
-    setSelectionId((current) => (current === '*' ? current : keepTeam(current, value, nextCountry, true)));
+    setTeamId((current) => keepTeam(current, value, countryId, false));
+    setSelectionId((current) => (current === '*' ? current : keepTeam(current, value, countryId, true)));
   }
 
   function changeCountry(value: string) {
@@ -127,19 +131,32 @@ export function ProductsPage() {
     setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
+  function shared(values: string[]) {
+    if (!values.length) return '';
+    return values.every((value) => value === values[0]) ? values[0] : '';
+  }
+
   function openBulk(scope: 'ids' | 'filter') {
+    const selected = scope === 'ids' ? items.filter((product) => picked.includes(product.id)) : [];
     setBulkScope(scope);
-    setBulkSportId('');
-    setBulkCountryId('');
-    setBulkCategoryId('');
-    setBulkTeamId('');
-    setTranslateNames(true);
+    setBulkSportId(shared(selected.map((product) => product.sport?.id || '')));
+    setBulkCountryId(shared(selected.map((product) => product.country?.id || '')));
+    setBulkCategoryId(shared(selected.map((product) => product.category?.id || '')));
+    setBulkTeamId(shared(selected.map((product) => product.team?.id || '')));
+    const price = shared(selected.map((product) => String(product.price)));
+    setBulkPrice(price);
+    setTranslateNames(false);
   }
 
   async function applyBulk(event: FormEvent) {
     event.preventDefault();
     if (!bulkScope) return;
-    if (!bulkSportId && !bulkCountryId && !bulkCategoryId && !bulkTeamId && !translateNames) {
+    const parsedPrice = bulkPrice.trim() ? Number(bulkPrice.replace(',', '.')) : undefined;
+    if (parsedPrice != null && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) {
+      await dialog.alert('Informe um valor válido.');
+      return;
+    }
+    if (parsedPrice == null && !bulkSportId && !bulkCountryId && !bulkCategoryId && !bulkTeamId && !translateNames) {
       await dialog.alert('Escolha ao menos uma alteração.');
       return;
     }
@@ -159,6 +176,7 @@ export function ProductsPage() {
         countryId: bulkCountryId || undefined,
         categoryId: bulkCategoryId || undefined,
         teamId: bulkTeamId || undefined,
+        price: parsedPrice,
         translateNames,
       });
       setMessage(`${data.updated} produtos atualizados.`);
@@ -180,13 +198,13 @@ export function ProductsPage() {
 
   const pager = pages > 1 ? (
     <Pages>
-      <Button type="button" $tone="ghost" disabled={page <= 1} onClick={() => go(page - 1)}>Anterior</Button>
+      <Button type="button" $tone="ghost" disabled={loading || page <= 1} onClick={() => go(page - 1)}>Anterior</Button>
       {pageList(page, pages).map((entry, index) => (
         entry === '…' ? <span key={`gap-${index}`}>…</span> : (
-          <Button key={entry} type="button" $tone={entry === page ? 'ink' : 'ghost'} onClick={() => go(entry)}>{entry}</Button>
+          <Button key={entry} type="button" $tone={entry === page ? 'ink' : 'ghost'} disabled={loading || entry === page} onClick={() => go(entry)}>{entry}</Button>
         )
       ))}
-      <Button type="button" $tone="ghost" disabled={page >= pages} onClick={() => go(page + 1)}>Próxima</Button>
+      <Button type="button" $tone="ghost" disabled={loading || page >= pages} onClick={() => go(page + 1)}>Próxima</Button>
     </Pages>
   ) : null;
 
@@ -210,12 +228,12 @@ export function ProductsPage() {
           <option value="IGNORED">Ignorado</option>
         </Select>
         <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Pesquisar" />
-        <Button type="submit" $tone="ink">Filtrar</Button>
+        <Button type="submit" $tone="ink" disabled={loading}>{loading ? 'Buscando...' : 'Filtrar'}</Button>
       </Filters>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       <Toolbar>
-        <p>{total} produtos{pages > 1 ? ` · página ${page} de ${pages}` : ''}</p>
+        <p>{loading ? 'Buscando...' : `${total} produtos`}{!loading && pages > 1 ? ` · página ${page} de ${pages}` : ''}</p>
         <span>
           <TextLink type="button" onClick={() => setPicked(picked.length === items.length && items.length ? [] : items.map((product) => product.id))}>
             {picked.length === items.length && items.length ? 'Limpar seleção' : 'Selecionar esta página'}
@@ -225,8 +243,8 @@ export function ProductsPage() {
         </span>
       </Toolbar>
       {pager}
-      {!error && items.length === 0 ? <p>Nenhum produto cadastrado.</p> : null}
-      <Table>
+      {!loading && !error && items.length === 0 ? <p>Nenhum produto encontrado.</p> : null}
+      <Table $loading={loading}>
         <thead><tr><th></th><th></th><th>Produto</th><th>Preço</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {items.map((product) => {
@@ -255,8 +273,9 @@ export function ProductsPage() {
       {bulkScope ? (
         <Modal title={bulkScope === 'ids' ? `Editar ${picked.length} produtos` : `Editar ${total} produtos`} onClose={() => setBulkScope(null)}>
           <form onSubmit={(event) => void applyBulk(event)}>
-            <p>O que ficar em “Não alterar” permanece como está. O time, se escolhido, vale para todos. Traduzir nomes lê a legenda de cada peça e separa o time.</p>
+            <p>O que ficar em “Não alterar” permanece como está. O valor e o time, se preenchidos, valem para todos. Traduzir nomes lê a legenda de cada peça e separa o time.</p>
             <Grid>
+              <Field>Valor<Input value={bulkPrice} onChange={(event) => setBulkPrice(event.target.value)} inputMode="decimal" placeholder="Não alterar" /></Field>
               <Field>Esporte<Select value={bulkSportId} onChange={(event) => { setBulkSportId(event.target.value); setBulkTeamId(''); }}><option value="">Não alterar</option>{sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
               <Field>País<Select value={bulkCountryId} onChange={(event) => { setBulkCountryId(event.target.value); setBulkTeamId(''); }}><option value="">Não alterar</option>{countries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
               <Field>Categoria<Select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}><option value="">Não alterar</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
@@ -312,10 +331,11 @@ const Thumb = styled.div`
   background: ${({ theme }) => theme.paper};
   img { width: 48px; height: 48px; object-fit: cover; display: block; }
 `;
-const Table = styled.table`
+const Table = styled.table<{ $loading?: boolean }>`
   width: 100%;
   border-collapse: collapse;
   background: ${({ theme }) => theme.paperRaised};
+  opacity: ${({ $loading }) => ($loading ? 0.45 : 1)};
   th, td { text-align: left; padding: 10px; border-bottom: 1px solid ${({ theme }) => theme.line}; vertical-align: top; }
   small { display: block; color: ${({ theme }) => theme.muted}; }
   button, a { margin-right: 8px; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
