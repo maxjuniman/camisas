@@ -44,6 +44,20 @@ type Item = {
   sourceUrl: string;
 };
 
+type SavedLink = { id: string; title: string; url: string };
+
+type Issue = {
+  id: string;
+  rawName: string;
+  displayName: string;
+  matchStatus: string;
+  reviewStatus: string;
+  sourceUrl: string;
+  rawDescription: string;
+  image: { url: string | null; thumbUrl: string | null } | null;
+  duplicates: { id: string; reason: string; score: number; product: { id: string; name: string; thumbUrl: string | null } }[];
+};
+
 const statusLabel: Record<string, string> = {
   QUEUED: 'Na fila',
   RUNNING: 'Em execução',
@@ -65,8 +79,14 @@ export function ImportPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+  const [saved, setSaved] = useState<SavedLink[]>([]);
   const [link, setLink] = useState('');
-  const [modal, setModal] = useState<'stop' | 'resume' | 'link' | null>(null);
+  const [draftTitle, setDraftTitle] = useState('');
+  const [draftUrl, setDraftUrl] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [modal, setModal] = useState<'stop' | 'resume' | 'link' | 'save' | 'analyze' | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -77,14 +97,16 @@ export function ImportPage() {
   const approvalSeen = useRef('');
 
   async function load() {
-    const [jobRes, itemRes, approvalRes] = await Promise.all([
+    const [jobRes, itemRes, approvalRes, linkRes] = await Promise.all([
       api.get<Job[]>('/admin/scraping/jobs'),
       api.get<Item[]>('/admin/scraping/items', { params: { reviewStatus: 'PENDING' } }),
       api.get<Approval[]>('/admin/scraping/approvals'),
+      api.get<SavedLink[]>('/admin/scraping/links'),
     ]);
     setJobs(jobRes.data);
     setItems(itemRes.data);
     setApprovals(approvalRes.data);
+    setSaved(linkRes.data);
   }
 
   useEffect(() => {
@@ -200,6 +222,95 @@ export function ImportPage() {
     }
   }
 
+  function openSave(current?: SavedLink) {
+    setEditingId(current?.id ?? null);
+    setDraftTitle(current?.title ?? '');
+    setDraftUrl(current?.url ?? '');
+    setModal('save');
+  }
+
+  async function saveLink(event: FormEvent) {
+    event.preventDefault();
+    const title = draftTitle.trim();
+    const url = draftUrl.trim();
+    if (title.length < 2 || !url) {
+      await dialog.alert('Informe o título e o link do grupo.');
+      return;
+    }
+    try {
+      if (editingId) await api.patch(`/admin/scraping/links/${editingId}`, { title, url });
+      else await api.post('/admin/scraping/links', { title, url });
+      setModal(null);
+      setMessage(editingId ? 'Link atualizado.' : 'Link salvo.');
+      await load();
+    } catch (reason) {
+      const text = reason instanceof Error ? reason.message : 'Falha ao salvar o link.';
+      setError(text);
+      await dialog.alert(text);
+    }
+  }
+
+  async function removeSaved(current: SavedLink) {
+    if (!(await dialog.confirm(`Excluir o link ${current.title}?`))) return;
+    try {
+      await api.delete(`/admin/scraping/links/${current.id}`);
+      setMessage('Link excluído.');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao excluir o link.');
+    }
+  }
+
+  async function importSaved(current: SavedLink) {
+    try {
+      await api.post('/admin/scraping/import', { url: current.url });
+      setMessage(`Varredura de ${current.title} iniciada.`);
+      await load();
+    } catch (reason) {
+      const text = reason instanceof Error ? reason.message : 'Falha na importação.';
+      setError(text);
+      await dialog.alert(text);
+    }
+  }
+
+  async function openAnalysis(job: Job) {
+    try {
+      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${job.id}/issues`);
+      setIssues(data);
+      setAnalysisJobId(job.id);
+      setModal('analyze');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao abrir a análise.');
+    }
+  }
+
+  async function decideDuplicate(issue: Issue, duplicate: boolean) {
+    if (!analysisJobId) return;
+    try {
+      if (duplicate) await api.post(`/admin/scraping/items/${issue.id}/review`, { action: 'ignore' });
+      else await api.post(`/admin/scraping/items/${issue.id}/release`);
+      setMessage(duplicate ? 'Marcada como duplicada. Não entra de novo no catálogo.' : 'Marcada como peça nova. Ela volta para a aprovação.');
+      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJobId}/issues`);
+      setIssues(data);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao analisar o duplicado.');
+    }
+  }
+
+  async function ignoreError(issue: Issue) {
+    if (!analysisJobId) return;
+    try {
+      await api.post(`/admin/scraping/items/${issue.id}/review`, { action: 'ignore' });
+      setMessage('Erro ignorado.');
+      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJobId}/issues`);
+      setIssues(data);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao ignorar o erro.');
+    }
+  }
+
   async function importLink(event: FormEvent) {
     event.preventDefault();
     const url = link.trim();
@@ -233,13 +344,16 @@ export function ImportPage() {
       <h1>Importação de produtos</h1>
       <Actions>
         <Button type="button" onClick={() => setModal('link')} disabled={Boolean(active)}>Importar grupo</Button>
+        <Button type="button" $tone="ghost" onClick={() => openSave()}>Salvar link</Button>
         {active && active.status !== 'PAUSED' ? (
           <Button type="button" $tone="ghost" onClick={() => setModal('stop')}>Parar</Button>
         ) : null}
         {active?.status === 'PAUSED' ? (
           <Button type="button" onClick={() => setModal('resume')}>Retomar</Button>
         ) : null}
-        <Button type="button" $tone="ghost" onClick={() => void reset()} disabled={resetting}>Zerar importação</Button>
+        {active || items.length ? (
+          <Button type="button" $tone="ghost" onClick={() => void reset()} disabled={resetting}>Zerar importação</Button>
+        ) : null}
       </Actions>
       {modal === 'stop' && active ? (
         <Modal title="Parar" onClose={() => setModal(null)}>
@@ -274,6 +388,78 @@ export function ImportPage() {
           </form>
         </Modal>
       ) : null}
+      {modal === 'save' ? (
+        <Modal title={editingId ? 'Editar link' : 'Salvar link'} onClose={() => setModal(null)}>
+          <form onSubmit={(event) => void saveLink(event)}>
+            <Field>
+              Título
+              <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} />
+            </Field>
+            <Field>
+              Link do grupo
+              <Input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} />
+            </Field>
+            <Actions>
+              <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
+              <Button type="submit">{editingId ? 'Atualizar' : 'Salvar'}</Button>
+            </Actions>
+          </form>
+        </Modal>
+      ) : null}
+      {modal === 'analyze' ? (
+        <Modal title="Analisar duplicados e erros" onClose={() => setModal(null)}>
+          {issues.length === 0 ? <p>Nada pendente nesta varredura.</p> : null}
+          <IssueList>
+            {issues.map((issue) => (
+              <li key={issue.id}>
+                <IssueHead>
+                  {issue.image?.url ? <img src={issue.image.thumbUrl || issue.image.url} alt="" /> : null}
+                  <div>
+                    <strong>{issue.displayName || issue.rawName}</strong>
+                    <small>{issue.matchStatus === 'ERROR' ? 'Erro' : 'Possível duplicado'} · {issue.reviewStatus === 'PENDING' ? 'Pendente' : statusLabel[issue.reviewStatus] || issue.reviewStatus}</small>
+                  </div>
+                </IssueHead>
+                {issue.matchStatus === 'ERROR' ? <p>Motivo: {issue.rawDescription || 'A leitura desta peça falhou.'}</p> : null}
+                {issue.duplicates.map((candidate) => (
+                  <p key={candidate.id}>
+                    Parece a mesma peça que <strong>{candidate.product.name}</strong>, porque {duplicateReason(candidate.reason)} ({Math.round(candidate.score * 100)}%).
+                  </p>
+                ))}
+                {issue.reviewStatus === 'PENDING' && issue.matchStatus === 'SUSPECT_DUPLICATE' ? (
+                  <Actions>
+                    <Button type="button" onClick={() => void decideDuplicate(issue, true)}>É duplicado</Button>
+                    <Button type="button" $tone="ink" onClick={() => void decideDuplicate(issue, false)}>Não é duplicado</Button>
+                  </Actions>
+                ) : null}
+                {issue.reviewStatus === 'PENDING' && issue.matchStatus === 'ERROR' ? (
+                  <Actions>
+                    <a href={issue.sourceUrl} target="_blank" rel="noreferrer">Abrir no fornecedor</a>
+                    <Button type="button" $tone="ghost" onClick={() => void ignoreError(issue)}>Ignorar</Button>
+                  </Actions>
+                ) : null}
+              </li>
+            ))}
+          </IssueList>
+        </Modal>
+      ) : null}
+      <h2>Links salvos</h2>
+      {saved.length ? (
+        <SavedList>
+          {saved.map((current) => (
+            <li key={current.id}>
+              <div>
+                <strong>{current.title}</strong>
+                <small>{current.url}</small>
+              </div>
+              <span>
+                <button type="button" onClick={() => void importSaved(current)} disabled={Boolean(active)}>Importar</button>
+                <button type="button" onClick={() => openSave(current)}>Editar</button>
+                <button type="button" onClick={() => void removeSaved(current)}>Excluir</button>
+              </span>
+            </li>
+          ))}
+        </SavedList>
+      ) : <p>Nenhum link salvo. Guarde o título e o endereço do grupo para repetir a varredura.</p>}
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       {active ? (
@@ -350,7 +536,7 @@ export function ImportPage() {
                             {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
                           </small>
                         </div>
-                        <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
+                        <Link to={`/admin/importacao/itens/${item.id}`}>{item.matchStatus === 'ERROR' || item.matchStatus === 'SUSPECT_DUPLICATE' ? 'Analisar' : 'Revisar'}</Link>
                       </li>
                     ))}
                   </List>
@@ -381,6 +567,9 @@ export function ImportPage() {
                   <td>{job.removedCount || 0}</td>
                   <td>{job.errorCount}</td>
                   <td>
+                    {job.duplicateSuspectCount || job.errorCount ? (
+                      <DetailsButton type="button" onClick={() => void openAnalysis(job)}>Analisar</DetailsButton>
+                    ) : null}
                     <DetailsButton type="button" onClick={() => setOpenJobId((current) => current === job.id ? null : job.id)}>
                       {openJobId === job.id ? 'Fechar' : 'Detalhes'}
                     </DetailsButton>
@@ -407,6 +596,12 @@ export function ImportPage() {
       ) : <p>Nenhuma varredura executada.</p>}
     </section>
   );
+}
+
+function duplicateReason(reason: string) {
+  if (reason === 'IMAGE') return 'a foto é parecida';
+  if (reason === 'BOTH') return 'o nome e a foto são parecidos';
+  return 'o nome é parecido';
 }
 
 function groupItems(items: Item[]) {
@@ -463,6 +658,32 @@ const Summary = styled.div`
   background: ${({ theme }) => theme.paper};
   p { margin: 0 0 6px; overflow-wrap: anywhere; }
   pre { white-space: pre-wrap; font-size: 12px; margin: 0; }
+`;
+const SavedList = styled.ul`
+  list-style: none;
+  padding: 0;
+  margin: 0 0 24px;
+  li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid ${({ theme }) => theme.line}; }
+  small { display: block; color: ${({ theme }) => theme.muted}; overflow-wrap: anywhere; }
+  button { margin-left: 12px; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; font: inherit; }
+  button:disabled { cursor: default; opacity: 0.45; }
+`;
+const IssueList = styled.ul`
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  li { padding: 12px 0; border-bottom: 1px solid ${({ theme }) => theme.line}; }
+  p { margin: 8px 0; }
+  a { margin-right: 12px; }
+`;
+const IssueHead = styled.div`
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  img { width: 48px; height: 48px; object-fit: cover; }
+  small { display: block; color: ${({ theme }) => theme.muted}; }
 `;
 const List = styled.ul`
   list-style: none; padding: 0;

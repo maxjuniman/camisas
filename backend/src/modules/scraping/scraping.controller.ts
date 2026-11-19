@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { ApprovePendingDto, ImportUrlsDto, ReviewDto, StartJobDto } from './dto/scraping.dto';
+import { ApprovePendingDto, ImportUrlsDto, ReviewDto, SaveLinkDto, StartJobDto } from './dto/scraping.dto';
 import { ScrapingService } from './scraping.service';
 
 type AuthRequest = Request & { user: { id: string } };
@@ -17,9 +17,34 @@ export class ScrapingController {
     return { url: this.scraping.categoryUrl() };
   }
 
+  @Get('links')
+  links() {
+    return this.scraping.listLinks();
+  }
+
+  @Post('links')
+  createLink(@Body() dto: SaveLinkDto) {
+    return this.scraping.createLink(dto);
+  }
+
+  @Patch('links/:id')
+  updateLink(@Param('id') id: string, @Body() dto: SaveLinkDto) {
+    return this.scraping.updateLink(id, dto);
+  }
+
+  @Delete('links/:id')
+  removeLink(@Param('id') id: string) {
+    return this.scraping.removeLink(id);
+  }
+
   @Get('jobs')
   jobs() {
     return this.scraping.listJobs();
+  }
+
+  @Get('jobs/:id/issues')
+  issues(@Param('id') id: string) {
+    return this.scraping.listIssues(id);
   }
 
   @Get('jobs/:id')
@@ -81,6 +106,11 @@ export class ScrapingController {
   @Post('items/:id/discontinue')
   discontinue(@Param('id') id: string) {
     return this.scraping.confirmDiscontinued(id);
+  }
+
+  @Post('items/:id/release')
+  release(@Param('id') id: string) {
+    return this.scraping.releaseDuplicate(id);
   }
 
   @Delete('items/:id')

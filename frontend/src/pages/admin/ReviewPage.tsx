@@ -135,6 +135,16 @@ export function ReviewPage() {
     navigate('/admin/importacao');
   }
 
+  async function release() {
+    if (!id) return;
+    try {
+      await api.post(`/admin/scraping/items/${id}/release`);
+      setItem((current) => (current ? { ...current, matchStatus: 'NEW' } : current));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao marcar como peça nova.');
+    }
+  }
+
   async function drop() {
     if (!id) return;
     try {
@@ -159,6 +169,21 @@ export function ReviewPage() {
   }
 
   if (!item) return <p>{error || 'Carregando...'}</p>;
+
+  if (item.matchStatus === 'ERROR') {
+    return (
+      <section>
+        <h1>Erro na importação</h1>
+        <p><strong>{item.displayName || item.rawName}</strong></p>
+        <p>Motivo: {item.rawDescription || 'A leitura desta peça falhou.'}</p>
+        <p><a href={item.sourceUrl} target="_blank" rel="noreferrer">Abrir no fornecedor</a></p>
+        {error ? <Notice $kind="error">{error}</Notice> : null}
+        <Actions>
+          <Button type="button" $tone="ink" onClick={() => void ignore()}>Ignorar</Button>
+        </Actions>
+      </section>
+    );
+  }
 
   if (item.matchStatus === 'DISCONTINUED') {
     return (
@@ -185,12 +210,21 @@ export function ReviewPage() {
         {item.images.map((image) => image.url ? <img key={image.id} src={image.thumbUrl || image.url} alt="" /> : null)}
       </Gallery>
       {item.duplicates.length ? (
-        <Notice $kind="error">
-          Possível duplicata, sem mescla automática.
-          {item.duplicates.map((candidate) => (
-            <span key={candidate.id}> {candidate.product.name} ({candidate.reason}, {candidate.score.toFixed(2)}).</span>
-          ))}
-        </Notice>
+        <>
+          <Notice $kind="error">
+            {item.duplicates.map((candidate) => (
+              <span key={candidate.id}>
+                Parece a mesma peça que {candidate.product.name}, porque {duplicateReason(candidate.reason)} ({Math.round(candidate.score * 100)}%).{' '}
+              </span>
+            ))}
+          </Notice>
+          {item.matchStatus === 'SUSPECT_DUPLICATE' ? (
+            <Actions>
+              <Button type="button" onClick={() => void ignore()}>É duplicado</Button>
+              <Button type="button" $tone="ink" onClick={() => void release()}>Não é duplicado</Button>
+            </Actions>
+          ) : null}
+        </>
       ) : null}
       {item.changes.length ? (
         <div>
@@ -244,6 +278,12 @@ export function ReviewPage() {
       </Form>
     </section>
   );
+}
+
+function duplicateReason(reason: string) {
+  if (reason === 'IMAGE') return 'a foto é parecida';
+  if (reason === 'BOTH') return 'o nome e a foto são parecidos';
+  return 'o nome é parecido';
 }
 
 function matchSeason(options: RefItem[], title: string) {

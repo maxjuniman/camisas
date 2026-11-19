@@ -6,7 +6,7 @@ import { normalizeName, similarity, slugify } from '../../common/text';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
 import { countryFromChampionship, friendlyName, isNationalGroup, nationalTeamFromTitle, parseSizeNames, portugueseCountry, publicTeamName, sizeSortOrder } from './catalog-name';
-import { ImportUrlsDto, ReviewDto } from './dto/scraping.dto';
+import { ImportUrlsDto, ReviewDto, SaveLinkDto } from './dto/scraping.dto';
 import {
   AlbumRef,
   DEFAULT_CATEGORY_URL,
@@ -58,6 +58,88 @@ export class ScrapingService implements OnModuleInit {
     return this.prisma.scrapingJob.findMany({ orderBy: { createdAt: 'desc' }, take: 30 });
   }
 
+  async listLinks() {
+    return this.prisma.savedLink.findMany({ orderBy: { title: 'asc' } });
+  }
+
+  async createLink(dto: SaveLinkDto) {
+    this.assertGroupUrl(dto.url);
+    return this.prisma.savedLink.create({ data: { title: dto.title.trim(), url: dto.url.trim() } });
+  }
+
+  async updateLink(id: string, dto: SaveLinkDto) {
+    const current = await this.prisma.savedLink.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Link salvo não encontrado.');
+    this.assertGroupUrl(dto.url);
+    return this.prisma.savedLink.update({
+      where: { id },
+      data: { title: dto.title.trim(), url: dto.url.trim() },
+    });
+  }
+
+  async removeLink(id: string) {
+    const current = await this.prisma.savedLink.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException('Link salvo não encontrado.');
+    await this.prisma.savedLink.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async listIssues(jobId: string) {
+    const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { id: true } });
+    if (!job) throw new NotFoundException('Varredura não encontrada.');
+    const items = await this.prisma.scrapedProduct.findMany({
+      where: { jobId, matchStatus: { in: ['SUSPECT_DUPLICATE', 'ERROR'] } },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        images: { orderBy: { sortOrder: 'asc' }, take: 1 },
+        duplicates: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                images: { orderBy: { sortOrder: 'asc' }, take: 1, select: { thumbUrl: true, url: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    return items.map((item) => ({
+      id: item.id,
+      rawName: item.rawName,
+      displayName: item.displayName || friendlyName(item.rawName),
+      matchStatus: item.matchStatus,
+      reviewStatus: item.reviewStatus,
+      sourceUrl: item.sourceUrl,
+      rawDescription: item.rawDescription,
+      image: item.images[0] ? { url: item.images[0].url, thumbUrl: item.images[0].thumbUrl } : null,
+      duplicates: item.duplicates.map((candidate) => ({
+        id: candidate.id,
+        reason: candidate.reason,
+        score: candidate.score,
+        resolved: candidate.resolved,
+        product: {
+          id: candidate.product.id,
+          name: candidate.product.name,
+          thumbUrl: candidate.product.images[0]?.thumbUrl || candidate.product.images[0]?.url || null,
+        },
+      })),
+    }));
+  }
+
+  async releaseDuplicate(id: string) {
+    const item = await this.prisma.scrapedProduct.findUnique({ where: { id } });
+    if (!item || item.matchStatus !== 'SUSPECT_DUPLICATE') {
+      throw new BadRequestException('Este item não está como possível duplicado.');
+    }
+    await this.prisma.$transaction([
+      this.prisma.duplicateCandidate.updateMany({ where: { scrapedProductId: id }, data: { resolved: true } }),
+      this.prisma.scrapedProduct.update({ where: { id }, data: { matchStatus: 'NEW', reviewStatus: 'PENDING' } }),
+    ]);
+    return { ok: true };
+  }
+
   async getJob(id: string) {
     const job = await this.prisma.scrapingJob.findUnique({
       where: { id },
@@ -69,6 +151,10 @@ export class ScrapingService implements OnModuleInit {
 
   categoryUrl() {
     return process.env.YUPOO_CATEGORY_URL || DEFAULT_CATEGORY_URL;
+  }
+
+  private assertGroupUrl(url: string) {
+    if (!isCategoryUrl(url.trim())) throw new BadRequestException('Informe o link do grupo no Yupoo.');
   }
 
   async listItems(reviewStatus?: string) {

@@ -29,6 +29,15 @@ export class StartJobDto {
   forced?: boolean;
 }
 
+export class SaveLinkDto {
+  @IsString()
+  @MinLength(2)
+  title!: string;
+
+  @IsUrl({ require_protocol: true })
+  url!: string;
+}
+
 export class ImportUrlsDto {
   @IsOptional()
   @IsUrl({ require_protocol: true })
