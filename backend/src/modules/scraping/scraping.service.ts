@@ -5,6 +5,7 @@ import { productInclude, serializeProduct } from '../../common/serialize';
 import { normalizeName, similarity, slugify } from '../../common/text';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
+import { captionTeam, seasonLabel } from './caption-pt';
 import { countryFromChampionship, friendlyName, isNationalGroup, nationalTeamFromTitle, parseSizeNames, portugueseCountry, publicTeamName, sizeSortOrder } from './catalog-name';
 import { ImportUrlsDto, ReviewDto, SaveLinkDto } from './dto/scraping.dto';
 import {
@@ -36,6 +37,7 @@ export class ScrapingService implements OnModuleInit {
   private readonly jobEpoch = new Map<string, number>();
   private readonly teamNames = new Map<string, string>();
   private readonly knownSizes = new Set<string>();
+  private readonly knownSeasons = new Set<string>();
 
   async onModuleInit() {
     const jobs = await this.prisma.scrapingJob.findMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } } });
@@ -425,8 +427,8 @@ export class ScrapingService implements OnModuleInit {
     const sportId = team?.sportId || lists.sports.find((entry) => entry.slug === 'futebol')?.id;
     const gender = lists.genders.find((entry) => entry.name.toLowerCase() === (item.suggestedGender || '').toLowerCase());
     const category = lists.categories.find((entry) => entry.name.toLowerCase() === (item.suggestedCategory || '').toLowerCase());
-    const seasonMatch = item.rawName.match(/\b(\d{2})\/(\d{2})\b/);
-    const season = seasonMatch ? lists.seasons.find((entry) => entry.name === `20${seasonMatch[1]}/${seasonMatch[2]}`) : undefined;
+    const seasonName = seasonLabel(item.rawName) || seasonLabel(item.displayName);
+    const season = seasonName ? lists.seasons.find((entry) => entry.name === seasonName) : undefined;
     const wanted = new Set((item.suggestedSizes || '').split(',').map((size) => size.trim().toLowerCase()).filter(Boolean));
     const sizeIds = lists.sizes.filter((size) => wanted.has(size.name.toLowerCase())).map((size) => size.id);
     await this.review(item.id, {
@@ -810,7 +812,10 @@ export class ScrapingService implements OnModuleInit {
     if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
     const detail = await readAlbum(album.url);
     const name = detail.title || album.title;
+    const display = friendlyName(name);
     const normalized = normalizeName(name);
+    const seasonName = seasonLabel(name);
+    if (seasonName) await this.ensureSeason(seasonName);
     const byOrigin = await this.prisma.product.findFirst({
       where: { OR: [{ externalId: album.id }, { sourceUrl: album.url }] },
       include: { images: true },
@@ -820,8 +825,10 @@ export class ScrapingService implements OnModuleInit {
     const coverHash = storedImages.find((image) => image.perceptualHash)?.perceptualHash ?? null;
     const sizeNames = parseSizeNames(name);
     await this.ensureSizes(sizeNames);
-    const suggestions = await this.suggest(name, sizeNames);
+    const suggestions = await this.suggest(display, sizeNames);
+    const parsedTeam = captionTeam(name);
     if (album.team) suggestions.team = await this.ensureTeam(album.team, album.country, album.national === true);
+    else if (parsedTeam) suggestions.team = await this.ensureTeam(parsedTeam.name, parsedTeam.country, false, parsedTeam.sport);
 
     let matchStatus: MatchStatus = 'NEW';
     let linkedProductId: string | null = byOrigin?.id ?? null;
@@ -867,7 +874,7 @@ export class ScrapingService implements OnModuleInit {
         externalId: album.id,
         sourceUrl: album.url,
         rawName: name,
-        displayName: friendlyName(name),
+        displayName: display,
         rawDescription: detail.description,
         normalizedName: normalized,
         suggestedTeam: suggestions.team,
@@ -1017,9 +1024,9 @@ export class ScrapingService implements OnModuleInit {
     return { ...item, displayName: item.displayName || friendlyName(item.rawName) };
   }
 
-  private async ensureTeam(rawName: string, countryName?: string, national = false) {
+  private async ensureTeam(rawName: string, countryName?: string, national = false, sportSlug = 'futebol') {
     const name = national ? portugueseCountry(rawName) : publicTeamName(rawName);
-    const cacheKey = `${normalizeName(name)}|${countryName || ''}|${national ? '1' : '0'}`;
+    const cacheKey = `${normalizeName(name)}|${countryName || ''}|${national ? '1' : '0'}|${sportSlug}`;
     const cached = this.teamNames.get(cacheKey);
     if (cached) return cached;
     const existing = await this.prisma.team.findMany({
@@ -1029,7 +1036,7 @@ export class ScrapingService implements OnModuleInit {
       const sameName = normalizeName(team.name) === normalizeName(name) || normalizeName(team.name) === normalizeName(rawName);
       return sameName && team.isNational === national;
     });
-    const sport = await this.prisma.sport.findFirst({ where: { slug: 'futebol', isActive: true } });
+    const sport = await this.prisma.sport.findFirst({ where: { slug: sportSlug, isActive: true } });
     const country = countryName ? await this.ensureCountry(countryName) : null;
     if (found) {
       const data: { sportId?: string; countryId?: string } = {};
@@ -1058,6 +1065,17 @@ export class ScrapingService implements OnModuleInit {
       where: { slug },
       update: {},
       create: { name, slug },
+    });
+  }
+
+  private async ensureSeason(name: string) {
+    const slug = slugify(name);
+    if (this.knownSeasons.has(slug)) return;
+    this.knownSeasons.add(slug);
+    await this.prisma.season.upsert({
+      where: { slug },
+      update: {},
+      create: { name, slug, sortOrder: Number(name.slice(0, 4)) || 0 },
     });
   }
 
@@ -1092,9 +1110,9 @@ export class ScrapingService implements OnModuleInit {
     let category: string | null = null;
     if (normalized.includes('retro')) category = categories.find((item) => item.slug === 'retro')?.name ?? null;
     else if (/training|treino|pre match/.test(normalized)) category = categories.find((item) => item.slug === 'treino')?.name ?? null;
-    else if (normalized.includes('third')) category = categories.find((item) => item.slug === 'terceira-camisa')?.name ?? null;
-    else if (normalized.includes('away')) category = categories.find((item) => item.slug === 'camisa-reserva')?.name ?? null;
-    else if (normalized.includes('home')) category = categories.find((item) => item.slug === 'camisa-titular')?.name ?? null;
+    else if (normalized.includes('third') || normalized.includes('terceira')) category = categories.find((item) => item.slug === 'terceira-camisa')?.name ?? null;
+    else if (normalized.includes('away') || normalized.includes('reserva')) category = categories.find((item) => item.slug === 'camisa-reserva')?.name ?? null;
+    else if (normalized.includes('home') || normalized.includes('titular')) category = categories.find((item) => item.slug === 'camisa-titular')?.name ?? null;
     return { team, gender, category, sizes: sizeNames.length ? sizeNames.join(', ') : null };
   }
 

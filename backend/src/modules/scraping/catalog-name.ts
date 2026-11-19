@@ -1,3 +1,5 @@
+import { hasChinese, translateCaption } from './caption-pt';
+
 const ADULT_SIZES = ['P', 'M', 'G', 'GG', 'XG', '3G', '4G'];
 
 const KNOWN_TEAMS = [
@@ -171,6 +173,7 @@ export function friendlyName(raw: string): string {
     .replace(/&amp;/gi, '&')
     .replace(/\s+/g, ' ')
     .trim();
+  if (hasChinese(text)) text = translateCaption(text);
   text = text.replace(/\bsize\s*\d+\s*-\s*\d+\b/gi, ' ');
   text = text.replace(/\bS\s*-\s*\d?X{0,4}L\b/gi, ' ');
   const swaps: [RegExp, string][] = [

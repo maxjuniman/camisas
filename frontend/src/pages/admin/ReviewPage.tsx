@@ -287,9 +287,20 @@ function duplicateReason(reason: string) {
 }
 
 function matchSeason(options: RefItem[], title: string) {
-  const match = title.match(/\b(\d{2})\/(\d{2})\b/);
-  if (!match) return '';
-  const name = `20${match[1]}/${match[2]}`;
+  const full = title.match(/\b(20\d{2})\/(\d{2})\b/);
+  const slash = title.match(/\b(\d{2})\/(\d{2})\b/);
+  const chinese = title.match(/(\d{2})\s*赛季/);
+  const bare = !chinese && /[\u3400-\u9fff]/.test(title) ? title.match(/(?:^|\s)(\d{2})(?=\s)/) : null;
+  const name = full
+    ? `${full[1]}/${full[2]}`
+    : slash
+      ? `20${slash[1]}/${slash[2]}`
+      : chinese
+        ? `${2000 + Number(chinese[1]) - 1}/${chinese[1]}`
+        : bare
+          ? `${2000 + Number(bare[1]) - 1}/${bare[1]}`
+          : '';
+  if (!name) return '';
   return options.find((item) => item.name === name)?.id || '';
 }
 
