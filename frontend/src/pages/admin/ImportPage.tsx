@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import { useDialog } from '../../components/dialog';
@@ -84,14 +84,13 @@ export function ImportPage() {
   const [draftUrl, setDraftUrl] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
-  const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+  const [analysisJob, setAnalysisJob] = useState<Job | null>(null);
   const [modal, setModal] = useState<'stop' | 'resume' | 'link' | 'analyze' | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [price, setPrice] = useState('');
-  const [openJobId, setOpenJobId] = useState<string | null>(null);
   const dialog = useDialog();
   const approvalSeen = useRef('');
 
@@ -285,7 +284,7 @@ export function ImportPage() {
     try {
       const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${job.id}/issues`);
       setIssues(data);
-      setAnalysisJobId(job.id);
+      setAnalysisJob(job);
       setModal('analyze');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Falha ao abrir a análise.');
@@ -293,12 +292,12 @@ export function ImportPage() {
   }
 
   async function decideDuplicate(issue: Issue, duplicate: boolean) {
-    if (!analysisJobId) return;
+    if (!analysisJob) return;
     try {
       if (duplicate) await api.post(`/admin/scraping/items/${issue.id}/review`, { action: 'ignore' });
       else await api.post(`/admin/scraping/items/${issue.id}/release`);
       setMessage(duplicate ? 'Marcada como duplicada. Não entra de novo no catálogo.' : 'Marcada como peça nova. Ela volta para a aprovação.');
-      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJobId}/issues`);
+      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJob.id}/issues`);
       setIssues(data);
       await load();
     } catch (reason) {
@@ -306,12 +305,30 @@ export function ImportPage() {
     }
   }
 
+  async function importAnyway(issue: Issue) {
+    if (!analysisJob) return;
+    const parsed = price.trim() ? Number(price.replace(',', '.')) : 0;
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      await dialog.alert('Informe um preço válido ou deixe o campo em branco.');
+      return;
+    }
+    try {
+      await api.post(`/admin/scraping/items/${issue.id}/import`, { price: parsed });
+      setMessage(`${issue.displayName || issue.rawName} importada mesmo com a suspeita de duplicada.`);
+      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJob.id}/issues`);
+      setIssues(data);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao importar a peça.');
+    }
+  }
+
   async function ignoreError(issue: Issue) {
-    if (!analysisJobId) return;
+    if (!analysisJob) return;
     try {
       await api.post(`/admin/scraping/items/${issue.id}/review`, { action: 'ignore' });
       setMessage('Erro ignorado.');
-      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJobId}/issues`);
+      const { data } = await api.get<Issue[]>(`/admin/scraping/jobs/${analysisJob.id}/issues`);
       setIssues(data);
       await load();
     } catch (reason) {
@@ -414,9 +431,17 @@ export function ImportPage() {
           </form>
         </Modal>
       ) : null}
-      {modal === 'analyze' ? (
-        <Modal title="Analisar duplicados e erros" onClose={() => setModal(null)}>
-          {issues.length === 0 ? <p>Nada pendente nesta varredura.</p> : null}
+      {modal === 'analyze' && analysisJob ? (
+        <Modal title="Analisar detalhes" onClose={() => setModal(null)}>
+          <Summary>
+            {analysisJob.sourceUrl ? <p>Link: {analysisJob.sourceUrl}</p> : null}
+            <p>Execução: {new Date(analysisJob.finishedAt || analysisJob.createdAt).toLocaleString('pt-BR')}</p>
+            <p>Status: {statusLabel[analysisJob.status] || analysisJob.status}</p>
+            <p>Progresso: {analysisJob.cursor} de {analysisJob.foundCount} · Novos: {analysisJob.newCount} · Existentes: {analysisJob.existingCount}</p>
+            <p>Alterações: {analysisJob.changedCount} · Possíveis duplicados: {analysisJob.duplicateSuspectCount} · Fora de fabricação: {analysisJob.removedCount || 0} · Erros: {analysisJob.errorCount}</p>
+            {analysisJob.errorLog ? <pre>{analysisJob.errorLog}</pre> : null}
+          </Summary>
+          {issues.length === 0 ? <p>Nenhum duplicado ou erro nesta varredura.</p> : null}
           <IssueList>
             {issues.map((issue) => (
               <li key={issue.id}>
@@ -436,7 +461,8 @@ export function ImportPage() {
                 {issue.reviewStatus === 'PENDING' && issue.matchStatus === 'SUSPECT_DUPLICATE' ? (
                   <Actions>
                     <Button type="button" onClick={() => void decideDuplicate(issue, true)}>É duplicado</Button>
-                    <Button type="button" $tone="ink" onClick={() => void decideDuplicate(issue, false)}>Não é duplicado</Button>
+                    <Button type="button" $tone="ghost" onClick={() => void decideDuplicate(issue, false)}>Não é duplicado</Button>
+                    <Button type="button" $tone="ink" onClick={() => void importAnyway(issue)}>Importar mesmo assim</Button>
                   </Actions>
                 ) : null}
                 {issue.reviewStatus === 'PENDING' && issue.matchStatus === 'ERROR' ? (
@@ -546,8 +572,7 @@ export function ImportPage() {
           </thead>
           <tbody>
             {jobs.map((job) => (
-              <Fragment key={job.id}>
-                <tr>
+                <tr key={job.id}>
                   <td>{new Date(job.createdAt).toLocaleString('pt-BR')}</td>
                   <td>{statusLabel[job.status] || job.status}</td>
                   <td>{job.foundCount}</td>
@@ -557,29 +582,9 @@ export function ImportPage() {
                   <td>{job.removedCount || 0}</td>
                   <td>{job.errorCount}</td>
                   <td>
-                    {job.duplicateSuspectCount || job.errorCount ? (
-                      <DetailsButton type="button" onClick={() => void openAnalysis(job)}>Analisar</DetailsButton>
-                    ) : null}
-                    <DetailsButton type="button" onClick={() => setOpenJobId((current) => current === job.id ? null : job.id)}>
-                      {openJobId === job.id ? 'Fechar' : 'Detalhes'}
-                    </DetailsButton>
+                    <Button type="button" $tone="ghost" onClick={() => void openAnalysis(job)}>Analisar detalhes</Button>
                   </td>
                 </tr>
-                {openJobId === job.id ? (
-                  <tr key={`${job.id}-details`}>
-                    <td colSpan={9}>
-                      <Summary>
-                        {job.sourceUrl ? <p>Link: {job.sourceUrl}</p> : null}
-                        <p>Execução: {new Date(job.finishedAt || job.createdAt).toLocaleString('pt-BR')}</p>
-                        <p>Status: {statusLabel[job.status] || job.status}</p>
-                        <p>Progresso: {job.cursor} de {job.foundCount} · Novos: {job.newCount} · Existentes: {job.existingCount}</p>
-                        <p>Alterações: {job.changedCount} · Possíveis duplicados: {job.duplicateSuspectCount} · Fora de fabricação: {job.removedCount || 0} · Erros: {job.errorCount}</p>
-                        {job.errorLog ? <pre>{job.errorLog}</pre> : null}
-                      </Summary>
-                    </td>
-                  </tr>
-                ) : null}
-              </Fragment>
             ))}
           </tbody>
         </table>
@@ -633,15 +638,6 @@ const Fill = styled.div<{ $busy?: boolean }>`
 `;
 const TeamName = styled.h3`margin: 18px 0 0; font-size: 18px;`;
 const Approve = styled.div`display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 520px; input { max-width: 240px; }`;
-const DetailsButton = styled.button`
-  background: transparent;
-  border: 0;
-  padding: 0;
-  color: ${({ theme }) => theme.ink};
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-`;
 const Summary = styled.div`
   border: 1px solid ${({ theme }) => theme.line};
   padding: 12px;

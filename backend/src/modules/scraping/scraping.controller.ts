@@ -113,6 +113,11 @@ export class ScrapingController {
     return this.scraping.releaseDuplicate(id);
   }
 
+  @Post('items/:id/import')
+  importAnyway(@Param('id') id: string, @Body() dto: ApprovePendingDto) {
+    return this.scraping.importAnyway(id, dto.price ?? 0);
+  }
+
   @Delete('items/:id')
   remove(@Param('id') id: string) {
     return this.scraping.removeItem(id);

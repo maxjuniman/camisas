@@ -128,7 +128,7 @@ export async function downloadImage(url: string, referer: string): Promise<Buffe
 export function isCategoryUrl(value: string) {
   try {
     const url = new URL(value);
-    return url.hostname.endsWith('yupoo.com') && /\/categories\/\d+/.test(url.pathname);
+    return url.hostname.endsWith('yupoo.com') && /\/(categories|collections)\/\d+/.test(url.pathname);
   } catch {
     return false;
   }
@@ -148,7 +148,7 @@ function categoryCrumbs(html: string) {
       title: clean(item.getAttribute('title') || item.text),
       href: item.getAttribute('href') || '',
     }))
-    .filter((item) => item.title && item.title !== '全部分类');
+    .filter((item) => item.title && item.title !== '全部分类' && item.title.toLowerCase() !== 'all categories');
 }
 
 function sidebarTeams(html: string, origin: string) {

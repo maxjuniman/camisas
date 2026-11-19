@@ -128,6 +128,30 @@ export class ScrapingService implements OnModuleInit {
     }));
   }
 
+  async importAnyway(id: string, price = 0) {
+    const item = await this.prisma.scrapedProduct.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException('Item não encontrado.');
+    if (item.reviewStatus === 'APPROVED') return { ok: true };
+    if (item.matchStatus === 'ERROR') {
+      throw new BadRequestException('Esta peça falhou na leitura e não dá para importar.');
+    }
+    if (item.matchStatus === 'SUSPECT_DUPLICATE') {
+      await this.prisma.duplicateCandidate.updateMany({ where: { scrapedProductId: id }, data: { resolved: true } });
+      await this.prisma.scrapedProduct.update({ where: { id }, data: { matchStatus: 'NEW', reviewStatus: 'PENDING' } });
+    }
+    const [teams, sports, genders, categories, seasons, sizes] = await Promise.all([
+      this.prisma.team.findMany({ where: { isActive: true } }),
+      this.prisma.sport.findMany({ where: { isActive: true } }),
+      this.prisma.gender.findMany({ where: { isActive: true } }),
+      this.prisma.category.findMany({ where: { isActive: true } }),
+      this.prisma.season.findMany({ where: { isActive: true } }),
+      this.prisma.size.findMany({ where: { isActive: true } }),
+    ]);
+    const outcome = await this.approveQueuedItem(id, price, { teams, sports, genders, categories, seasons, sizes });
+    if (outcome === 'skipped') throw new BadRequestException('Esta peça não pôde ser importada.');
+    return { ok: true };
+  }
+
   async releaseDuplicate(id: string) {
     const item = await this.prisma.scrapedProduct.findUnique({ where: { id } });
     if (!item || item.matchStatus !== 'SUSPECT_DUPLICATE') {
@@ -1122,9 +1146,9 @@ export class ScrapingService implements OnModuleInit {
     if (!url) return null;
     try {
       const parsed = new URL(url);
-      const id = parsed.pathname.match(/\/categories\/(\d+)/)?.[1];
-      if (!id) return null;
-      return `${parsed.origin}/categories/${id}`;
+      const match = parsed.pathname.match(/\/(categories|collections)\/(\d+)/);
+      if (!match) return null;
+      return `${parsed.origin}/${match[1]}/${match[2]}`;
     } catch {
       return null;
     }
@@ -1133,15 +1157,15 @@ export class ScrapingService implements OnModuleInit {
   private async markMissing(jobId: string, albums: AlbumRef[]) {
     const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { sourceUrl: true } });
     const key = job ? this.groupKey(job.sourceUrl) : null;
-    const categoryId = key?.match(/(\d+)$/)?.[1];
-    if (!key || !categoryId) return;
+    const marker = key?.match(/\/(categories|collections)\/\d+$/)?.[0];
+    if (!key || !marker) return;
     const seen = new Set(albums.map((album) => album.id));
     const previous = await this.prisma.scrapedProduct.findMany({
       where: {
         linkedProductId: { not: null },
         reviewStatus: 'APPROVED',
         jobId: { not: jobId },
-        job: { sourceUrl: { contains: `/categories/${categoryId}` } },
+        job: { sourceUrl: { contains: marker } },
       },
       select: { linkedProductId: true },
     });
