@@ -80,13 +80,12 @@ export function ImportPage() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [saved, setSaved] = useState<SavedLink[]>([]);
-  const [link, setLink] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const [draftUrl, setDraftUrl] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
-  const [modal, setModal] = useState<'stop' | 'resume' | 'link' | 'save' | 'analyze' | null>(null);
+  const [modal, setModal] = useState<'stop' | 'resume' | 'link' | 'analyze' | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -222,15 +221,21 @@ export function ImportPage() {
     }
   }
 
-  function openSave(current?: SavedLink) {
-    setEditingId(current?.id ?? null);
-    setDraftTitle(current?.title ?? '');
-    setDraftUrl(current?.url ?? '');
-    setModal('save');
+  function openImport() {
+    setEditingId(null);
+    setDraftTitle('');
+    setDraftUrl('');
+    setModal('link');
   }
 
-  async function saveLink(event: FormEvent) {
-    event.preventDefault();
+  function openSave(current: SavedLink) {
+    setEditingId(current.id);
+    setDraftTitle(current.title);
+    setDraftUrl(current.url);
+  }
+
+  async function saveLink(event?: { preventDefault: () => void }) {
+    event?.preventDefault();
     const title = draftTitle.trim();
     const url = draftUrl.trim();
     if (title.length < 2 || !url) {
@@ -240,7 +245,9 @@ export function ImportPage() {
     try {
       if (editingId) await api.patch(`/admin/scraping/links/${editingId}`, { title, url });
       else await api.post('/admin/scraping/links', { title, url });
-      setModal(null);
+      setEditingId(null);
+      setDraftTitle('');
+      setDraftUrl('');
       setMessage(editingId ? 'Link atualizado.' : 'Link salvo.');
       await load();
     } catch (reason) {
@@ -264,6 +271,7 @@ export function ImportPage() {
   async function importSaved(current: SavedLink) {
     try {
       await api.post('/admin/scraping/import', { url: current.url });
+      setModal(null);
       setMessage(`Varredura de ${current.title} iniciada.`);
       await load();
     } catch (reason) {
@@ -313,7 +321,7 @@ export function ImportPage() {
 
   async function importLink(event: FormEvent) {
     event.preventDefault();
-    const url = link.trim();
+    const url = draftUrl.trim();
     if (!url) {
       await dialog.alert('Informe o link do grupo.');
       return;
@@ -343,8 +351,7 @@ export function ImportPage() {
     <section>
       <h1>Importação de produtos</h1>
       <Actions>
-        <Button type="button" onClick={() => setModal('link')} disabled={Boolean(active)}>Importar grupo</Button>
-        <Button type="button" $tone="ghost" onClick={() => openSave()}>Salvar link</Button>
+        <Button type="button" onClick={openImport} disabled={Boolean(active)}>Importar grupo</Button>
         {active && active.status !== 'PAUSED' ? (
           <Button type="button" $tone="ghost" onClick={() => setModal('stop')}>Parar</Button>
         ) : null}
@@ -375,33 +382,34 @@ export function ImportPage() {
       ) : null}
       {modal === 'link' ? (
         <Modal title="Importar grupo" onClose={() => setModal(null)}>
+          <SavedList>
+            {saved.length ? saved.map((current) => (
+              <li key={current.id}>
+                <div>
+                  <strong>{current.title}</strong>
+                  <small>{current.url}</small>
+                </div>
+                <span>
+                  <button type="button" onClick={() => void importSaved(current)}>Importar</button>
+                  <button type="button" onClick={() => openSave(current)}>Editar</button>
+                  <button type="button" onClick={() => void removeSaved(current)}>Excluir</button>
+                </span>
+              </li>
+            )) : <li>Nenhum link salvo.</li>}
+          </SavedList>
           <form onSubmit={(event) => void importLink(event)}>
-            <Field>
-              Link do grupo
-              <Input value={link} onChange={(event) => setLink(event.target.value)} placeholder="" />
-            </Field>
-            <p>A varredura marca novo, duplicado e alteração. A peça que já está no catálogo e não voltar nesse grupo fica como fora de fabricação.</p>
-            <Actions>
-              <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
-              <Button type="submit">Importar</Button>
-            </Actions>
-          </form>
-        </Modal>
-      ) : null}
-      {modal === 'save' ? (
-        <Modal title={editingId ? 'Editar link' : 'Salvar link'} onClose={() => setModal(null)}>
-          <form onSubmit={(event) => void saveLink(event)}>
             <Field>
               Título
               <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} />
             </Field>
             <Field>
               Link do grupo
-              <Input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} />
+              <Input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} placeholder="" />
             </Field>
+            <p>A varredura marca novo, duplicado e alteração. A peça que já está no catálogo e não voltar nesse grupo fica como fora de fabricação.</p>
             <Actions>
-              <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
-              <Button type="submit">{editingId ? 'Atualizar' : 'Salvar'}</Button>
+              <Button type="button" $tone="ghost" onClick={(event) => void saveLink(event)}>{editingId ? 'Atualizar link' : 'Salvar link'}</Button>
+              <Button type="submit">Importar</Button>
             </Actions>
           </form>
         </Modal>
@@ -442,24 +450,6 @@ export function ImportPage() {
           </IssueList>
         </Modal>
       ) : null}
-      <h2>Links salvos</h2>
-      {saved.length ? (
-        <SavedList>
-          {saved.map((current) => (
-            <li key={current.id}>
-              <div>
-                <strong>{current.title}</strong>
-                <small>{current.url}</small>
-              </div>
-              <span>
-                <button type="button" onClick={() => void importSaved(current)} disabled={Boolean(active)}>Importar</button>
-                <button type="button" onClick={() => openSave(current)}>Editar</button>
-                <button type="button" onClick={() => void removeSaved(current)}>Excluir</button>
-              </span>
-            </li>
-          ))}
-        </SavedList>
-      ) : <p>Nenhum link salvo. Guarde o título e o endereço do grupo para repetir a varredura.</p>}
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       {active ? (
@@ -662,7 +652,9 @@ const Summary = styled.div`
 const SavedList = styled.ul`
   list-style: none;
   padding: 0;
-  margin: 0 0 24px;
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
   li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid ${({ theme }) => theme.line}; }
   small { display: block; color: ${({ theme }) => theme.muted}; overflow-wrap: anywhere; }
   button { margin-left: 12px; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; font: inherit; }
