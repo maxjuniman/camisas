@@ -32,6 +32,7 @@ enum MatchStatus {
   CHANGED
   SUSPECT_DUPLICATE
   ERROR
+  DISCONTINUED
 }
 
 enum ReviewStatus {
@@ -172,6 +173,9 @@ model Product {
   sourceUrl           String?              @unique
   externalId          String?              @unique
   normalizedName      String               @default("")
+  groupKey            String?
+  groupSeenAt         DateTime?
+  discontinued        Boolean              @default(false)
   images              ProductImage[]
   sizes               ProductSize[]
   scrapedItems        ScrapedProduct[]
@@ -182,6 +186,7 @@ model Product {
   @@index([status, isActive, availableForOrder])
   @@index([normalizedName])
   @@index([countryId])
+  @@index([groupKey])
 }
 
 model ProductImage {
@@ -238,6 +243,7 @@ model ScrapingJob {
   changedCount          Int              @default(0)
   duplicateSuspectCount Int              @default(0)
   errorCount            Int              @default(0)
+  removedCount          Int              @default(0)
   errorLog              String           @default("")
   cursor                Int              @default(0)
   queue                 Json?

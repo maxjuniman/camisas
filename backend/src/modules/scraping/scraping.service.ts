@@ -11,7 +11,6 @@ import {
   AlbumRef,
   DEFAULT_CATEGORY_URL,
   SupplierBlockedError,
-  albumIdFromUrl,
   discoverAlbums,
   isCategoryUrl,
   discoverCatalog,
@@ -112,34 +111,11 @@ export class ScrapingService implements OnModuleInit {
 
   async importUrls(dto: ImportUrlsDto, userId: string) {
     const single = dto.url?.trim();
-    if (single) {
-      if (isCategoryUrl(single)) {
-        const job = await this.openJob(false, single, userId);
-        this.launch(job.id, () => this.runCategory(job.id, single, false));
-        return job;
-      }
-      const album = albumIdFromUrl(single);
-      if (!album) throw new BadRequestException('Informe o link de um campeonato ou de um álbum do Yupoo.');
-      const job = await this.openJob(false, single, userId);
-      await this.prisma.scrapingJob.update({
-        where: { id: job.id },
-        data: { queue: [album] as unknown as Prisma.InputJsonValue, foundCount: 1, cursor: 0 },
-      });
-      this.launch(job.id, () => this.runAlbums(job.id, [album], false, true));
-      return job;
+    if (!single || !isCategoryUrl(single)) {
+      throw new BadRequestException('Informe o link do grupo no Yupoo.');
     }
-    const albums = (dto.urls || []).map((url) => {
-      const parsed = albumIdFromUrl(url);
-      if (!parsed) throw new BadRequestException('Informe apenas links de álbuns do Yupoo.');
-      return parsed;
-    });
-    if (!albums.length) throw new BadRequestException('Informe o link do campeonato.');
-    const job = await this.openJob(true, 'importacao-manual', userId);
-    await this.prisma.scrapingJob.update({
-      where: { id: job.id },
-      data: { queue: albums as unknown as Prisma.InputJsonValue, foundCount: albums.length, cursor: 0 },
-    });
-    this.launch(job.id, () => this.runAlbums(job.id, albums, true, true));
+    const job = await this.openJob(false, single, userId);
+    this.launch(job.id, () => this.runCategory(job.id, single, false));
     return job;
   }
 
@@ -219,14 +195,14 @@ export class ScrapingService implements OnModuleInit {
     let skipped = 0;
     for (const item of pending) {
       const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
-      if (item.matchStatus === 'ERROR' || name.length < 2) {
+      if (item.matchStatus === 'ERROR' || item.matchStatus === 'DISCONTINUED' || name.length < 2) {
         skipped += 1;
         continue;
       }
       ids.push(item.id);
     }
     if (!ids.length) {
-      throw new BadRequestException('Não há itens prontos para aprovar. Os erros continuam na revisão.');
+      throw new BadRequestException('Não há itens prontos para aprovar. Os erros e as peças fora de fabricação continuam na revisão.');
     }
     const job = await this.prisma.approvalJob.create({
       data: {
@@ -327,7 +303,7 @@ export class ScrapingService implements OnModuleInit {
     });
     if (!item || item.reviewStatus === 'IGNORED') return 'skipped';
     if (item.reviewStatus === 'APPROVED') return 'approved';
-    if (item.matchStatus === 'ERROR') return 'skipped';
+    if (item.matchStatus === 'ERROR' || item.matchStatus === 'DISCONTINUED') return 'skipped';
     if (item.linkedProductId) {
       await this.copyImages(item.linkedProductId, item.images, item.displayName || item.rawName);
       await this.prisma.scrapedProduct.update({ where: { id: item.id }, data: { reviewStatus: 'APPROVED' } });
@@ -401,12 +377,13 @@ export class ScrapingService implements OnModuleInit {
   async review(id: string, dto: ReviewDto) {
     const item = await this.prisma.scrapedProduct.findUnique({
       where: { id },
-      include: { images: { orderBy: { sortOrder: 'asc' } }, linkedProduct: true },
+      include: { images: { orderBy: { sortOrder: 'asc' } }, linkedProduct: true, job: { select: { sourceUrl: true } } },
     });
     if (!item) throw new NotFoundException('Item não encontrado.');
     if (dto.action === 'ignore') {
       return this.prisma.scrapedProduct.update({ where: { id }, data: { reviewStatus: 'IGNORED' } });
     }
+    if (item.matchStatus === 'DISCONTINUED') return this.confirmDiscontinued(id);
     if (!dto.name || dto.price == null) {
       throw new BadRequestException('Informe nome e preço para aprovar.');
     }
@@ -434,6 +411,7 @@ export class ScrapingService implements OnModuleInit {
       orderNote: dto.orderNote?.trim() ?? '',
       sourceUrl: item.linkedProduct?.sourceUrl ?? item.sourceUrl,
       externalId: item.linkedProduct?.externalId ?? item.externalId,
+      ...(this.groupKey(item.job.sourceUrl) ? { groupKey: this.groupKey(item.job.sourceUrl), groupSeenAt: new Date() } : {}),
     };
 
     const product = await this.prisma.$transaction(async (tx) => {
@@ -488,6 +466,26 @@ export class ScrapingService implements OnModuleInit {
     });
 
     return serializeProduct(product);
+  }
+
+  async confirmDiscontinued(id: string) {
+    const item = await this.prisma.scrapedProduct.findUnique({ where: { id } });
+    if (!item || item.matchStatus !== 'DISCONTINUED' || !item.linkedProductId) {
+      throw new BadRequestException('Esta peça não está marcada como fora de fabricação.');
+    }
+    await this.prisma.$transaction([
+      this.prisma.product.update({
+        where: { id: item.linkedProductId },
+        data: {
+          discontinued: true,
+          isActive: false,
+          availableForOrder: false,
+          availabilityNote: 'Fora de fabricação',
+        },
+      }),
+      this.prisma.scrapedProduct.update({ where: { id }, data: { reviewStatus: 'APPROVED' } }),
+    ]);
+    return { ok: true };
   }
 
   async removeItem(id: string) {
@@ -653,11 +651,13 @@ export class ScrapingService implements OnModuleInit {
         images: { select: { perceptualHash: true }, where: { isPrimary: true }, take: 1 },
       },
     });
+    const current = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { sourceUrl: true } });
+    const groupKey = current ? this.groupKey(current.sourceUrl) : null;
     for (let index = startIndex; index < albums.length; index += 1) {
       if (!(await this.waitIfPaused(jobId))) return;
       const album = albums[index];
       try {
-        await this.ingest(jobId, album, forced, counts, catalog);
+        await this.ingest(jobId, album, forced, counts, catalog, groupKey);
       } catch (error) {
         if (error instanceof JobStopped) return;
         counts.errors += 1;
@@ -685,6 +685,7 @@ export class ScrapingService implements OnModuleInit {
       if (!(await this.waitIfPaused(jobId))) return;
       await sleep(80);
     }
+    await this.markMissing(jobId, albums);
     await this.finish(jobId, counts, notes, 'SUCCEEDED');
   }
 
@@ -694,6 +695,7 @@ export class ScrapingService implements OnModuleInit {
     forced: boolean,
     counts: { created: number; existing: number; changed: number; suspect: number; errors: number },
     catalog: { id: string; normalizedName: string; images: { perceptualHash: string | null }[] }[],
+    groupKey: string | null,
   ) {
     if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
     const detail = await readAlbum(album.url);
@@ -787,6 +789,12 @@ export class ScrapingService implements OnModuleInit {
         },
       },
     });
+    if (byOrigin && groupKey) {
+      await this.prisma.product.update({
+        where: { id: byOrigin.id },
+        data: { groupKey, groupSeenAt: new Date(), discontinued: false },
+      });
+    }
     return created;
   }
 
@@ -1022,6 +1030,72 @@ export class ScrapingService implements OnModuleInit {
       if (job.status !== 'PAUSED') return true;
       await sleep(1000);
     }
+  }
+
+  private groupKey(url: string | null | undefined) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      const id = parsed.pathname.match(/\/categories\/(\d+)/)?.[1];
+      if (!id) return null;
+      return `${parsed.origin}/categories/${id}`;
+    } catch {
+      return null;
+    }
+  }
+
+  private async markMissing(jobId: string, albums: AlbumRef[]) {
+    const job = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { sourceUrl: true } });
+    const key = job ? this.groupKey(job.sourceUrl) : null;
+    const categoryId = key?.match(/(\d+)$/)?.[1];
+    if (!key || !categoryId) return;
+    const seen = new Set(albums.map((album) => album.id));
+    const previous = await this.prisma.scrapedProduct.findMany({
+      where: {
+        linkedProductId: { not: null },
+        reviewStatus: 'APPROVED',
+        jobId: { not: jobId },
+        job: { sourceUrl: { contains: `/categories/${categoryId}` } },
+      },
+      select: { linkedProductId: true },
+    });
+    const historicalIds = [...new Set(previous.map((row) => row.linkedProductId).filter((id): id is string => Boolean(id)))];
+    if (historicalIds.length) {
+      await this.prisma.product.updateMany({
+        where: { id: { in: historicalIds }, groupKey: null },
+        data: { groupKey: key },
+      });
+    }
+    const catalog = await this.prisma.product.findMany({
+      where: { groupKey: key, status: 'APPROVED', discontinued: false, externalId: { not: null } },
+      select: { id: true, name: true, externalId: true, sourceUrl: true, groupSeenAt: true, team: { select: { name: true } } },
+    });
+    let removed = 0;
+    for (const product of catalog) {
+      if (!product.externalId || seen.has(product.externalId)) continue;
+      const latest = await this.prisma.scrapedProduct.findFirst({
+        where: { linkedProductId: product.id, matchStatus: 'DISCONTINUED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (latest?.reviewStatus === 'PENDING') continue;
+      if (latest?.reviewStatus === 'IGNORED' && (!product.groupSeenAt || latest.createdAt >= product.groupSeenAt)) continue;
+      await this.prisma.scrapedProduct.create({
+        data: {
+          jobId,
+          externalId: product.externalId,
+          sourceUrl: product.sourceUrl || key,
+          rawName: product.name,
+          displayName: product.name,
+          normalizedName: normalizeName(product.name),
+          suggestedTeam: product.team?.name,
+          matchStatus: 'DISCONTINUED',
+          reviewStatus: 'PENDING',
+          linkedProductId: product.id,
+        },
+      });
+      removed += 1;
+    }
+    await this.prisma.scrapingJob.update({ where: { id: jobId }, data: { removedCount: removed } });
   }
 
   private readCategory(value: Prisma.JsonValue | null) {

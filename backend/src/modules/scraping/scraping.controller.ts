@@ -78,6 +78,11 @@ export class ScrapingController {
     return this.scraping.review(id, dto);
   }
 
+  @Post('items/:id/discontinue')
+  discontinue(@Param('id') id: string) {
+    return this.scraping.confirmDiscontinued(id);
+  }
+
   @Delete('items/:id')
   remove(@Param('id') id: string) {
     return this.scraping.removeItem(id);

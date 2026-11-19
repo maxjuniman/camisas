@@ -20,6 +20,7 @@ type Job = {
   changedCount: number;
   duplicateSuspectCount: number;
   errorCount: number;
+  removedCount: number;
   errorLog: string;
 };
 
@@ -54,6 +55,7 @@ const statusLabel: Record<string, string> = {
   CHANGED: 'Com alterações',
   SUSPECT_DUPLICATE: 'Possível duplicado',
   ERROR: 'Erro',
+  DISCONTINUED: 'Fora de fabricação',
   PENDING: 'Pendente',
   APPROVED: 'Aprovado',
   IGNORED: 'Ignorado',
@@ -64,8 +66,7 @@ export function ImportPage() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [link, setLink] = useState('');
-  const [modal, setModal] = useState<'import' | 'stop' | 'resume' | 'link' | null>(null);
-  const [source, setSource] = useState('');
+  const [modal, setModal] = useState<'stop' | 'resume' | 'link' | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -76,15 +77,13 @@ export function ImportPage() {
   const approvalSeen = useRef('');
 
   async function load() {
-    const [jobRes, itemRes, sourceRes, approvalRes] = await Promise.all([
+    const [jobRes, itemRes, approvalRes] = await Promise.all([
       api.get<Job[]>('/admin/scraping/jobs'),
       api.get<Item[]>('/admin/scraping/items', { params: { reviewStatus: 'PENDING' } }),
-      api.get<{ url: string }>('/admin/scraping/source'),
       api.get<Approval[]>('/admin/scraping/approvals'),
     ]);
     setJobs(jobRes.data);
     setItems(itemRes.data);
-    setSource(sourceRes.data.url);
     setApprovals(approvalRes.data);
   }
 
@@ -158,13 +157,13 @@ export function ImportPage() {
       await dialog.alert('Informe um preço válido ou deixe o campo em branco.');
       return;
     }
-    const ready = items.filter((item) => item.matchStatus !== 'ERROR');
+    const ready = items.filter((item) => item.matchStatus !== 'ERROR' && item.matchStatus !== 'DISCONTINUED');
     if (!ready.length) {
-      await dialog.alert('Não há itens prontos para aprovar. Os erros continuam na revisão.');
+      await dialog.alert('Não há itens prontos para aprovar. Os erros e as peças fora de fabricação continuam na revisão.');
       return;
     }
     const confirmed = await dialog.confirm(
-      `Aprovar os itens pendentes sem abrir a revisão? Possíveis duplicados também entram na fila. Os erros continuam na revisão.`,
+      'Aprovar os itens pendentes sem abrir a revisão? Possíveis duplicados também entram na fila. Os erros e as peças fora de fabricação continuam na revisão.',
     );
     if (!confirmed) return;
     setError('');
@@ -180,17 +179,24 @@ export function ImportPage() {
     }
   }
 
-  async function start(forced: boolean) {
-    setError('');
+  async function dropFromCatalog(item: Item) {
+    if (!(await dialog.confirm(`Tirar ${item.displayName || item.rawName} do catálogo? Essa peça não voltou no grupo.`))) return;
     try {
-      await api.post('/admin/scraping/jobs', { forced });
-      setModal(null);
-      setMessage(forced ? 'Nova varredura forçada iniciada.' : 'Varredura iniciada.');
+      await api.post(`/admin/scraping/items/${item.id}/discontinue`);
+      setMessage('Peça retirada do catálogo. Parou de fabricar.');
       await load();
     } catch (reason) {
-      const text = reason instanceof Error ? reason.message : 'Falha ao iniciar.';
-      setError(text);
-      await dialog.alert(text);
+      setError(reason instanceof Error ? reason.message : 'Falha ao retirar a peça.');
+    }
+  }
+
+  async function keepSelling(item: Item) {
+    try {
+      await api.post(`/admin/scraping/items/${item.id}/review`, { action: 'ignore' });
+      setMessage('Peça mantida no catálogo.');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao manter a peça.');
     }
   }
 
@@ -198,13 +204,13 @@ export function ImportPage() {
     event.preventDefault();
     const url = link.trim();
     if (!url) {
-      await dialog.alert('Informe o link do campeonato.');
+      await dialog.alert('Informe o link do grupo.');
       return;
     }
     try {
       await api.post('/admin/scraping/import', { url });
       setModal(null);
-      setMessage('Importação do campeonato iniciada. As camisas entram separadas por time.');
+      setMessage('Varredura do grupo iniciada. No fim, as peças que sumiram do fornecedor aparecem como fora de fabricação.');
       await load();
     } catch (reason) {
       const text = reason instanceof Error ? reason.message : 'Falha na importação.';
@@ -215,6 +221,8 @@ export function ImportPage() {
 
   const latest = jobs[0];
   const active = jobs.find((job) => job.status === 'RUNNING' || job.status === 'QUEUED' || job.status === 'PAUSED');
+  const missingItems = items.filter((item) => item.matchStatus === 'DISCONTINUED');
+  const catalogItems = items.filter((item) => item.matchStatus !== 'DISCONTINUED');
   const approvingJob = approvals.find((job) => job.status === 'RUNNING' || job.status === 'QUEUED');
   const approvalPercent = approvingJob?.foundCount
     ? Math.min(100, Math.round((approvingJob.cursor / approvingJob.foundCount) * 100))
@@ -224,8 +232,7 @@ export function ImportPage() {
     <section>
       <h1>Importação de produtos</h1>
       <Actions>
-        <Button type="button" onClick={() => setModal('import')} disabled={Boolean(active)}>Importar</Button>
-        <Button type="button" $tone="ink" onClick={() => setModal('link')} disabled={Boolean(active)}>Importar por link</Button>
+        <Button type="button" onClick={() => setModal('link')} disabled={Boolean(active)}>Importar grupo</Button>
         {active && active.status !== 'PAUSED' ? (
           <Button type="button" $tone="ghost" onClick={() => setModal('stop')}>Parar</Button>
         ) : null}
@@ -234,16 +241,6 @@ export function ImportPage() {
         ) : null}
         <Button type="button" $tone="ghost" onClick={() => void reset()} disabled={resetting}>Zerar importação</Button>
       </Actions>
-      {modal === 'import' ? (
-        <Modal title="Importar" onClose={() => setModal(null)}>
-          <p>A varredura lê o grupo já configurado{source ? `: ${source}` : ''}.</p>
-          <Actions>
-            <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
-            <Button type="button" $tone="ink" onClick={() => void start(true)}>Forçar</Button>
-            <Button type="button" onClick={() => void start(false)}>Iniciar</Button>
-          </Actions>
-        </Modal>
-      ) : null}
       {modal === 'stop' && active ? (
         <Modal title="Parar" onClose={() => setModal(null)}>
           <p>A camisa em leitura termina e a fila fica parada. Dá para retomar depois.</p>
@@ -263,13 +260,13 @@ export function ImportPage() {
         </Modal>
       ) : null}
       {modal === 'link' ? (
-        <Modal title="Importar por link" onClose={() => setModal(null)}>
+        <Modal title="Importar grupo" onClose={() => setModal(null)}>
           <form onSubmit={(event) => void importLink(event)}>
             <Field>
-              Link do campeonato
+              Link do grupo
               <Input value={link} onChange={(event) => setLink(event.target.value)} placeholder="" />
             </Field>
-            <p>O link reúne os times. Cada categoria vira um time, e as camisas dele entram nesse time.</p>
+            <p>A varredura marca novo, duplicado e alteração. A peça que já está no catálogo e não voltar nesse grupo fica como fora de fabricação.</p>
             <Actions>
               <Button type="button" $tone="ghost" onClick={() => setModal(null)}>Cancelar</Button>
               <Button type="submit">Importar</Button>
@@ -303,44 +300,73 @@ export function ImportPage() {
           <strong>{approvingJob.foundCount ? `${approvalPercent}%` : '…'}</strong>
         </Progress>
       ) : null}
-      {!active && !approvingJob && items.length ? (
+      {!active && !approvingJob && (catalogItems.length || missingItems.length) ? (
         <>
-          <h2>Pendentes de aprovação</h2>
-          {items.some((item) => item.matchStatus !== 'ERROR') ? (
-            <Approve>
-              <Input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Preço de todos, se quiser" inputMode="decimal" />
-              <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
-            </Approve>
+          {missingItems.length ? (
+            <>
+              <h2>Fora de fabricação</h2>
+              <p>Estas peças estão no catálogo e não voltaram neste grupo.</p>
+              {groupItems(missingItems).map(([team, group]) => (
+                <div key={`missing-${team}`}>
+                  {team !== 'Sem time' ? <TeamName>{team}</TeamName> : null}
+                  <List>
+                    {group.map((item) => (
+                      <li key={item.id}>
+                        <div>
+                          <strong>{item.displayName || item.rawName}</strong>
+                          <small>Fora de fabricação</small>
+                        </div>
+                        <span>
+                          <button type="button" onClick={() => void dropFromCatalog(item)}>Tirar do catálogo</button>
+                          <button type="button" onClick={() => void keepSelling(item)}>Manter</button>
+                        </span>
+                      </li>
+                    ))}
+                  </List>
+                </div>
+              ))}
+            </>
           ) : null}
-          {groupItems(items).map(([team, group]) => (
-            <div key={team}>
-              {team !== 'Sem time' ? <TeamName>{team}</TeamName> : null}
-              <List>
-                {group.map((item) => (
-                  <li key={item.id}>
-                    <div>
-                      <strong>{item.displayName || item.rawName}</strong>
-                      <small>
-                        {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
-                        {statusLabel[item.matchStatus] || item.matchStatus}
-                        {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
-                      </small>
-                    </div>
-                    <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
-                  </li>
-                ))}
-              </List>
-            </div>
-          ))}
+          {catalogItems.length ? (
+            <>
+              <h2>Pendentes de aprovação</h2>
+              {catalogItems.some((item) => item.matchStatus !== 'ERROR') ? (
+                <Approve>
+                  <Input value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Preço de todos, se quiser" inputMode="decimal" />
+                  <Button type="button" onClick={() => void approveAll()} disabled={approving}>Aprovar sem revisar</Button>
+                </Approve>
+              ) : null}
+              {groupItems(catalogItems).map(([team, group]) => (
+                <div key={team}>
+                  {team !== 'Sem time' ? <TeamName>{team}</TeamName> : null}
+                  <List>
+                    {group.map((item) => (
+                      <li key={item.id}>
+                        <div>
+                          <strong>{item.displayName || item.rawName}</strong>
+                          <small>
+                            {item.displayName && item.displayName !== item.rawName ? `${item.rawName} · ` : ''}
+                            {statusLabel[item.matchStatus] || item.matchStatus}
+                            {item.suggestedSizes ? ` · ${item.suggestedSizes}` : ''}
+                          </small>
+                        </div>
+                        <Link to={`/admin/importacao/itens/${item.id}`}>Revisar</Link>
+                      </li>
+                    ))}
+                  </List>
+                </div>
+              ))}
+            </>
+          ) : null}
         </>
       ) : !active && !approvingJob ? (
-        <p>{latest && latest.newCount === 0 ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
+        <p>{latest && latest.newCount === 0 && !latest.removedCount ? 'Nada novo nesta varredura.' : 'Nenhum item pendente.'}</p>
       ) : null}
       <h2>Histórico</h2>
       {jobs.length ? (
         <table>
           <thead>
-            <tr><th>Data</th><th>Status</th><th>Encontrados</th><th>Novos</th><th>Duplicados</th><th>Alterações</th><th>Erros</th><th></th></tr>
+            <tr><th>Data</th><th>Status</th><th>Encontrados</th><th>Novos</th><th>Duplicados</th><th>Alterações</th><th>Fora</th><th>Erros</th><th></th></tr>
           </thead>
           <tbody>
             {jobs.map((job) => (
@@ -352,6 +378,7 @@ export function ImportPage() {
                   <td>{job.newCount}</td>
                   <td>{job.duplicateSuspectCount}</td>
                   <td>{job.changedCount}</td>
+                  <td>{job.removedCount || 0}</td>
                   <td>{job.errorCount}</td>
                   <td>
                     <DetailsButton type="button" onClick={() => setOpenJobId((current) => current === job.id ? null : job.id)}>
@@ -361,13 +388,13 @@ export function ImportPage() {
                 </tr>
                 {openJobId === job.id ? (
                   <tr key={`${job.id}-details`}>
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <Summary>
                         {job.sourceUrl ? <p>Link: {job.sourceUrl}</p> : null}
                         <p>Execução: {new Date(job.finishedAt || job.createdAt).toLocaleString('pt-BR')}</p>
                         <p>Status: {statusLabel[job.status] || job.status}</p>
                         <p>Progresso: {job.cursor} de {job.foundCount} · Novos: {job.newCount} · Existentes: {job.existingCount}</p>
-                        <p>Alterações: {job.changedCount} · Possíveis duplicados: {job.duplicateSuspectCount} · Erros: {job.errorCount}</p>
+                        <p>Alterações: {job.changedCount} · Possíveis duplicados: {job.duplicateSuspectCount} · Fora de fabricação: {job.removedCount || 0} · Erros: {job.errorCount}</p>
                         {job.errorLog ? <pre>{job.errorLog}</pre> : null}
                       </Summary>
                     </td>
@@ -440,5 +467,6 @@ const Summary = styled.div`
 const List = styled.ul`
   list-style: none; padding: 0;
   li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid ${({ theme }) => theme.line}; }
+  button { margin-left: 12px; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; font: inherit; }
   small { display: block; color: ${({ theme }) => theme.muted}; }
 `;

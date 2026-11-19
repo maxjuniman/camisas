@@ -135,6 +135,16 @@ export function ReviewPage() {
     navigate('/admin/importacao');
   }
 
+  async function drop() {
+    if (!id) return;
+    try {
+      await api.post(`/admin/scraping/items/${id}/discontinue`);
+      navigate('/admin/importacao');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao retirar a peça.');
+    }
+  }
+
   async function remove() {
     if (!id || !(await dialog.confirm('Excluir este item encontrado? O produto da loja, se já existir, permanece.'))) return;
     await api.delete(`/admin/scraping/items/${id}`);
@@ -148,7 +158,23 @@ export function ReviewPage() {
     if (team?.countryId) setCountryId(team.countryId);
   }
 
-  if (!item || !lists) return <p>{error || 'Carregando...'}</p>;
+  if (!item) return <p>{error || 'Carregando...'}</p>;
+
+  if (item.matchStatus === 'DISCONTINUED') {
+    return (
+      <section>
+        <h1>Fora de fabricação</h1>
+        <p>{item.displayName || item.rawName} está no catálogo e não voltou no grupo do fornecedor.</p>
+        {error ? <Notice $kind="error">{error}</Notice> : null}
+        <Actions>
+          <Button type="button" onClick={() => void drop()}>Tirar do catálogo</Button>
+          <Button type="button" $tone="ink" onClick={() => void ignore()}>Manter no catálogo</Button>
+        </Actions>
+      </section>
+    );
+  }
+
+  if (!lists) return <p>{error || 'Carregando...'}</p>;
 
   return (
     <section>

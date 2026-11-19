@@ -144,7 +144,7 @@ export function ProductsPage() {
               <td><Thumb>{cover ? <img src={cover.thumbUrl || cover.url} alt="" /> : null}</Thumb></td>
               <td>{product.name}<small>{[product.sport?.name, ...place].filter(Boolean).join(' · ')}</small></td>
               <td>{formatPrice(product.price)}</td>
-              <td>{statusLabel[product.status]} · {product.isActive ? 'Ativo' : 'Inativo'}</td>
+              <td>{product.discontinued ? 'Fora de fabricação' : `${statusLabel[product.status]} · ${product.isActive ? 'Ativo' : 'Inativo'}`}</td>
               <td>
                 <Link to={`/admin/produtos/${product.id}`}>Editar</Link>
                 <button type="button" onClick={() => void toggle(product)}>{product.isActive ? 'Desativar' : 'Ativar'}</button>

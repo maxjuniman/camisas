@@ -43,6 +43,7 @@ export type Product = {
   orderNote: string;
   sourceUrl: string | null;
   externalId: string | null;
+  discontinued: boolean;
   createdAt: string;
   updatedAt: string;
 };

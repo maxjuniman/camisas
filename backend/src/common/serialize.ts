@@ -45,6 +45,7 @@ export function serializeProduct(product: ProductWithRelations) {
     orderNote: product.orderNote,
     sourceUrl: product.sourceUrl,
     externalId: product.externalId,
+    discontinued: product.discontinued,
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
   };
