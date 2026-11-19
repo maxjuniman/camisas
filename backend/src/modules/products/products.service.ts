@@ -17,14 +17,14 @@ export class ProductsService {
 
   async list(query: AdminProductQueryDto) {
     const page = query.page && query.page > 0 ? query.page : 1;
-    const pageSize = 100;
+    const pageSize = Math.min(200, query.pageSize && query.pageSize > 0 ? query.pageSize : 100);
     const where = this.productWhere(query);
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
       this.prisma.product.findMany({
         where,
         include: productInclude,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: this.orderBy(query.sort),
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -223,6 +223,15 @@ export class ProductsService {
       this.prisma.productImage.update({ where: { id: imageId }, data: { isPrimary: true } }),
     ]);
     return this.get(id);
+  }
+
+  private orderBy(sort?: string): Prisma.ProductOrderByWithRelationInput {
+    if (sort === 'oldest') return { updatedAt: 'asc' };
+    if (sort === 'name') return { name: 'asc' };
+    if (sort === 'name-desc') return { name: 'desc' };
+    if (sort === 'price') return { price: 'asc' };
+    if (sort === 'price-desc') return { price: 'desc' };
+    return { updatedAt: 'desc' };
   }
 
   private productWhere(query: {

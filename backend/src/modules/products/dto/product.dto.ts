@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsIn,
   IsNumber,
+  Max,
   IsOptional,
   IsString,
   IsUUID,
@@ -160,6 +161,17 @@ export class AdminProductQueryDto {
   @Type(() => Number)
   @IsNumber()
   page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(200)
+  pageSize?: number;
+
+  @IsOptional()
+  @IsIn(['recent', 'oldest', 'name', 'name-desc', 'price', 'price-desc'])
+  sort?: 'recent' | 'oldest' | 'name' | 'name-desc' | 'price' | 'price-desc';
 }
 
 export class BulkEditDto {

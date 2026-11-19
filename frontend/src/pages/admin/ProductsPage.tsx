@@ -25,6 +25,7 @@ export function ProductsPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
+  const [sort, setSort] = useState('recent');
   const [total, setTotal] = useState(0);
   const [picked, setPicked] = useState<string[]>([]);
   const [bulkScope, setBulkScope] = useState<'ids' | 'filter' | null>(null);
@@ -41,7 +42,7 @@ export function ProductsPage() {
   const [error, setError] = useState('');
   const dialog = useDialog();
 
-  async function load(nextPage = page) {
+  async function load(nextPage = page, nextSize = pageSize, nextSort = sort) {
     const current = ++requestId.current;
     setLoading(true);
     setError('');
@@ -55,14 +56,16 @@ export function ProductsPage() {
         status,
         national: selectionId === '*' ? 'true' : '',
         page: String(nextPage),
+        pageSize: String(nextSize),
+        sort: nextSort,
       }).filter(([, value]) => value.trim()),
     );
     try {
       const { data } = await api.get<Page>('/admin/products', { params });
       if (current !== requestId.current) return;
-      const size = data.pageSize || 100;
+      const size = data.pageSize || nextSize;
       const last = Math.max(1, Math.ceil(data.total / size));
-      if (nextPage > last) return load(last);
+      if (nextPage > last) return load(last, nextSize, nextSort);
       setItems(data.items);
       setTotal(data.total);
       setPage(data.page || nextPage);
@@ -196,6 +199,24 @@ export function ProductsPage() {
     void load(next).then(() => window.scrollTo({ top: 0, behavior: 'smooth' })).catch((reason: Error) => setError(reason.message));
   }
 
+  function changePageSize(value: string) {
+    const size = Number(value);
+    setPageSize(size);
+    void load(1, size, sort).catch((reason: Error) => setError(reason.message));
+  }
+
+  function changeSort(value: string) {
+    setSort(value);
+    void load(1, pageSize, value).catch((reason: Error) => setError(reason.message));
+  }
+
+  const pageIds = items.map((product) => product.id);
+  const allPage = pageIds.length > 0 && pageIds.every((id) => picked.includes(id));
+
+  function togglePage() {
+    setPicked((current) => allPage ? current.filter((id) => !pageIds.includes(id)) : [...new Set([...current, ...pageIds])]);
+  }
+
   const pager = pages > 1 ? (
     <Pages>
       <Button type="button" $tone="ghost" disabled={loading || page <= 1} onClick={() => go(page - 1)}>Anterior</Button>
@@ -215,29 +236,40 @@ export function ProductsPage() {
         <Button as={Link} to="/admin/produtos/novo">Novo produto</Button>
       </Head>
       <Filters onSubmit={(event) => { event.preventDefault(); void load(1).catch((reason: Error) => setError(reason.message)); }}>
-        <Select value={sportId} onChange={(event) => changeSport(event.target.value)}><option value="">Esporte</option>{sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-        <Select value={countryId} onChange={(event) => changeCountry(event.target.value)}><option value="">País</option>{visibleCountries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-        <Select value={selectionId} onChange={(event) => { setSelectionId(event.target.value); setTeamId(''); }}><option value="">Seleção</option><option value="*">Todas as seleções</option>{visibleSelections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-        <Select value={teamId} onChange={(event) => { setTeamId(event.target.value); setSelectionId(''); }}><option value="">Time</option>{visibleTeams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-        <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Categoria</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-        <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">Status</option>
+        <Field>Esporte<Select value={sportId} onChange={(event) => changeSport(event.target.value)}><option value="">Todos</option>{sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+        <Field>País<Select value={countryId} onChange={(event) => changeCountry(event.target.value)}><option value="">Todos</option>{visibleCountries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+        <Field>Seleção<Select value={selectionId} onChange={(event) => { setSelectionId(event.target.value); setTeamId(''); }}><option value="">Todas</option><option value="*">Todas as seleções</option>{visibleSelections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+        <Field>Time<Select value={teamId} onChange={(event) => { setTeamId(event.target.value); setSelectionId(''); }}><option value="">Todos</option>{visibleTeams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+        <Field>Categoria<Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Todas</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+        <Field>Status<Select value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">Todos</option>
           <option value="APPROVED">Aprovado</option>
           <option value="PENDING">Pendente</option>
           <option value="DRAFT">Rascunho</option>
           <option value="IGNORED">Ignorado</option>
-        </Select>
-        <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="Pesquisar" />
-        <Button type="submit" $tone="ink" disabled={loading}>{loading ? 'Buscando...' : 'Filtrar'}</Button>
+        </Select></Field>
+        <Field>Ordenar<Select value={sort} onChange={(event) => changeSort(event.target.value)}>
+          <option value="recent">Mais recentes</option>
+          <option value="oldest">Mais antigos</option>
+          <option value="name">Nome</option>
+          <option value="name-desc">Nome invertido</option>
+          <option value="price">Menor preço</option>
+          <option value="price-desc">Maior preço</option>
+        </Select></Field>
+        <Field>Por página<Select value={String(pageSize)} onChange={(event) => changePageSize(event.target.value)}>
+          <option value="20">20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </Select></Field>
+        <Field>Pesquisar<Input value={q} onChange={(event) => setQ(event.target.value)} /></Field>
+        <Submit><Button type="submit" $tone="ink" disabled={loading}>{loading ? 'Buscando...' : 'Filtrar'}</Button></Submit>
       </Filters>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       <Toolbar>
         <p>{loading ? 'Buscando...' : `${total} produtos`}{!loading && pages > 1 ? ` · página ${page} de ${pages}` : ''}</p>
         <span>
-          <TextLink type="button" onClick={() => setPicked(picked.length === items.length && items.length ? [] : items.map((product) => product.id))}>
-            {picked.length === items.length && items.length ? 'Limpar seleção' : 'Selecionar esta página'}
-          </TextLink>
           <Button type="button" $tone="ghost" disabled={!picked.length} onClick={() => openBulk('ids')}>Editar selecionados ({picked.length})</Button>
           <Button type="button" disabled={!total} onClick={() => openBulk('filter')}>Editar todos do filtro ({total})</Button>
         </span>
@@ -245,7 +277,7 @@ export function ProductsPage() {
       {pager}
       {!loading && !error && items.length === 0 ? <p>Nenhum produto encontrado.</p> : null}
       <Table $loading={loading}>
-        <thead><tr><th></th><th></th><th>Produto</th><th>Preço</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th><input type="checkbox" checked={allPage} onChange={togglePage} aria-label="Selecionar esta página" /></th><th></th><th>Produto</th><th>Preço</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {items.map((product) => {
             const cover = coverOf(product);
@@ -302,7 +334,6 @@ const Toolbar = styled.div`
   flex-wrap: wrap;
   span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 `;
-const TextLink = styled.button`background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; font: inherit;`;
 const Grid = styled.div`display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0;`;
 const Actions = styled.div`display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;`;
 const Pages = styled.nav`
@@ -324,7 +355,15 @@ function pageList(current: number, last: number): Array<number | '…'> {
   });
   return list;
 }
-const Filters = styled.form`display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) 1.3fr auto; gap: 8px; @media (max-width: 1100px) { grid-template-columns: 1fr 1fr; } @media (max-width: 640px) { grid-template-columns: 1fr; }`;
+const Filters = styled.form`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  > label { flex: 1 1 220px; min-width: 220px; }
+  select { min-width: 220px; }
+`;
+const Submit = styled.div`flex: 0 0 auto;`;
 const Thumb = styled.div`
   width: 48px;
   height: 48px;
