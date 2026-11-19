@@ -66,6 +66,7 @@ model Country {
   sortOrder Int       @default(0)
   teams     Team[]
   products  Product[]
+  scrapingJobs ScrapingJob[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -97,6 +98,7 @@ model Sport {
   sortOrder Int       @default(0)
   products  Product[]
   teams     Team[]
+  scrapingJobs ScrapingJob[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -243,6 +245,10 @@ model ScrapingJob {
   status                JobStatus        @default(QUEUED)
   forced                Boolean          @default(false)
   sourceUrl             String
+  sportId               String?
+  sport                 Sport?           @relation(fields: [sportId], references: [id], onDelete: SetNull)
+  countryId             String?
+  country               Country?         @relation(fields: [countryId], references: [id], onDelete: SetNull)
   startedAt             DateTime?
   finishedAt            DateTime?
   foundCount            Int              @default(0)

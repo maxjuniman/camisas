@@ -202,6 +202,7 @@ export class ScrapingService implements OnModuleInit {
         changes: true,
         duplicates: { include: { product: { include: productInclude } } },
         linkedProduct: { include: productInclude },
+        job: { select: { sportId: true, countryId: true } },
       },
     });
     if (!item) throw new NotFoundException('Item não encontrado.');
@@ -226,7 +227,12 @@ export class ScrapingService implements OnModuleInit {
     if (!single || !isCategoryUrl(single)) {
       throw new BadRequestException('Informe o link do grupo no Yupoo.');
     }
-    const job = await this.openJob(false, single, userId);
+    const [sport, country] = await Promise.all([
+      this.prisma.sport.findFirst({ where: { id: dto.sportId, isActive: true } }),
+      this.prisma.country.findFirst({ where: { id: dto.countryId, isActive: true } }),
+    ]);
+    if (!sport || !country) throw new BadRequestException('Escolha o esporte e o país.');
+    const job = await this.openJob(false, single, userId, { sportId: sport.id, countryId: country.id });
     this.launch(job.id, () => this.runCategory(job.id, single, false));
     return job;
   }
@@ -411,7 +417,7 @@ export class ScrapingService implements OnModuleInit {
   ): Promise<'approved' | 'skipped'> {
     const item = await this.prisma.scrapedProduct.findUnique({
       where: { id },
-      include: { images: { orderBy: { sortOrder: 'asc' } } },
+      include: { images: { orderBy: { sortOrder: 'asc' } }, job: { select: { sportId: true, countryId: true } } },
     });
     if (!item || item.reviewStatus === 'IGNORED') return 'skipped';
     if (item.reviewStatus === 'APPROVED') return 'approved';
@@ -424,7 +430,8 @@ export class ScrapingService implements OnModuleInit {
     const name = (item.displayName || friendlyName(item.rawName) || item.rawName).trim();
     if (name.length < 2) return 'skipped';
     const team = lists.teams.find((entry) => entry.name.toLowerCase() === (item.suggestedTeam || '').toLowerCase());
-    const sportId = team?.sportId || lists.sports.find((entry) => entry.slug === 'futebol')?.id;
+    const sportId = item.job.sportId || team?.sportId || lists.sports.find((entry) => entry.slug === 'futebol')?.id;
+    const countryId = item.job.countryId || team?.countryId || undefined;
     const gender = lists.genders.find((entry) => entry.name.toLowerCase() === (item.suggestedGender || '').toLowerCase());
     const category = lists.categories.find((entry) => entry.name.toLowerCase() === (item.suggestedCategory || '').toLowerCase());
     const seasonName = seasonLabel(item.rawName) || seasonLabel(item.displayName);
@@ -438,7 +445,7 @@ export class ScrapingService implements OnModuleInit {
       price,
       teamId: team?.id,
       sportId,
-      countryId: team?.countryId || undefined,
+      countryId,
       genderId: gender?.id,
       categoryId: category?.id,
       seasonId: season?.id,
@@ -489,7 +496,7 @@ export class ScrapingService implements OnModuleInit {
   async review(id: string, dto: ReviewDto) {
     const item = await this.prisma.scrapedProduct.findUnique({
       where: { id },
-      include: { images: { orderBy: { sortOrder: 'asc' } }, linkedProduct: true, job: { select: { sourceUrl: true } } },
+      include: { images: { orderBy: { sortOrder: 'asc' } }, linkedProduct: true, job: { select: { sourceUrl: true, sportId: true, countryId: true } } },
     });
     if (!item) throw new NotFoundException('Item não encontrado.');
     if (dto.action === 'ignore') {
@@ -607,7 +614,7 @@ export class ScrapingService implements OnModuleInit {
     return { ok: true };
   }
 
-  private async openJob(forced: boolean, sourceUrl: string, userId: string) {
+  private async openJob(forced: boolean, sourceUrl: string, userId: string, placement?: { sportId: string; countryId: string }) {
     const cutoff = new Date(Date.now() - 45 * 60 * 1000);
     await this.prisma.scrapingJob.updateMany({
       where: { status: { in: ['QUEUED', 'RUNNING'] }, updatedAt: { lt: cutoff } },
@@ -621,7 +628,7 @@ export class ScrapingService implements OnModuleInit {
         }
         if (active) throw new ConflictException('Já existe uma varredura em execução.');
         return tx.scrapingJob.create({
-          data: { status: 'QUEUED', forced, sourceUrl, triggeredById: userId },
+          data: { status: 'QUEUED', forced, sourceUrl, triggeredById: userId, sportId: placement?.sportId, countryId: placement?.countryId },
         });
       });
     } catch (error) {
@@ -763,13 +770,17 @@ export class ScrapingService implements OnModuleInit {
         images: { select: { perceptualHash: true }, where: { isPrimary: true }, take: 1 },
       },
     });
-    const current = await this.prisma.scrapingJob.findUnique({ where: { id: jobId }, select: { sourceUrl: true } });
+    const current = await this.prisma.scrapingJob.findUnique({
+      where: { id: jobId },
+      select: { sourceUrl: true, sport: { select: { slug: true } }, country: { select: { name: true } } },
+    });
     const groupKey = current ? this.groupKey(current.sourceUrl) : null;
+    const placement = { sportSlug: current?.sport?.slug, countryName: current?.country?.name };
     for (let index = startIndex; index < albums.length; index += 1) {
       if (!(await this.waitIfPaused(jobId))) return;
       const album = albums[index];
       try {
-        await this.ingest(jobId, album, forced, counts, catalog, groupKey);
+        await this.ingest(jobId, album, forced, counts, catalog, groupKey, placement);
       } catch (error) {
         if (error instanceof JobStopped) return;
         counts.errors += 1;
@@ -808,6 +819,7 @@ export class ScrapingService implements OnModuleInit {
     counts: { created: number; existing: number; changed: number; suspect: number; errors: number },
     catalog: { id: string; normalizedName: string; images: { perceptualHash: string | null }[] }[],
     groupKey: string | null,
+    placement: { sportSlug?: string; countryName?: string } = {},
   ) {
     if (!(await this.waitIfPaused(jobId))) throw new JobStopped();
     const detail = await readAlbum(album.url);
@@ -827,8 +839,10 @@ export class ScrapingService implements OnModuleInit {
     await this.ensureSizes(sizeNames);
     const suggestions = await this.suggest(display, sizeNames);
     const parsedTeam = captionTeam(name);
-    if (album.team) suggestions.team = await this.ensureTeam(album.team, album.country, album.national === true);
-    else if (parsedTeam) suggestions.team = await this.ensureTeam(parsedTeam.name, parsedTeam.country, false, parsedTeam.sport);
+    const countryName = placement.countryName || album.country || parsedTeam?.country;
+    const sportSlug = placement.sportSlug || parsedTeam?.sport || 'futebol';
+    if (album.team) suggestions.team = await this.ensureTeam(album.team, countryName, album.national === true, sportSlug);
+    else if (parsedTeam) suggestions.team = await this.ensureTeam(parsedTeam.name, countryName, false, sportSlug);
 
     let matchStatus: MatchStatus = 'NEW';
     let linkedProductId: string | null = byOrigin?.id ?? null;

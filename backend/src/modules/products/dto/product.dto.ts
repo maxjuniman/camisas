@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -159,6 +160,76 @@ export class AdminProductQueryDto {
   @Type(() => Number)
   @IsNumber()
   page?: number;
+}
+
+export class BulkEditDto {
+  @IsIn(['ids', 'filter'])
+  scope!: 'ids' | 'filter';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsUUID('4', { each: true })
+  ids?: string[];
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  filterTeamId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  filterSportId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  filterCountryId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  filterCategoryId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsEnum(ProductStatus)
+  status?: ProductStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @IsBoolean()
+  national?: boolean;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  sportId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  countryId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
+  @Transform(blankToUndefined)
+  @IsUUID()
+  teamId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  translateNames?: boolean;
 }
 
 export class ReorderImagesDto {

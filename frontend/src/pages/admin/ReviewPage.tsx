@@ -22,6 +22,7 @@ type ReviewItem = {
   changes: { id: string; field: string; previousValue: string; nextValue: string }[];
   duplicates: { id: string; reason: string; score: number; product: Product }[];
   linkedProduct: Product | null;
+  job?: { sportId: string | null; countryId: string | null };
 };
 
 type Lists = Record<'teams' | 'sports' | 'countries' | 'genders' | 'categories' | 'seasons' | 'sizes', RefItem[]>;
@@ -82,8 +83,8 @@ export function ReviewPage() {
       const matchedTeamId = product?.team?.id || matchName(nextLists.teams, current.suggestedTeam);
       const matchedTeam = nextLists.teams.find((team) => team.id === matchedTeamId);
       setTeamId(matchedTeamId);
-      setSportId(product?.sport?.id || matchedTeam?.sportId || nextLists.sports.find((sport) => sport.slug === 'futebol')?.id || '');
-      setCountryId(product?.country?.id || matchedTeam?.countryId || '');
+      setSportId(product?.sport?.id || current.job?.sportId || matchedTeam?.sportId || nextLists.sports.find((sport) => sport.slug === 'futebol')?.id || '');
+      setCountryId(product?.country?.id || current.job?.countryId || matchedTeam?.countryId || '');
       setGenderId(product?.gender?.id || matchName(nextLists.genders, current.suggestedGender));
       setCategoryId(product?.category?.id || matchName(nextLists.categories, current.suggestedCategory));
       setSeasonId(product?.season?.id || matchSeason(nextLists.seasons, current.rawName));

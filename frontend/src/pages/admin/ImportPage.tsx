@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import { useDialog } from '../../components/dialog';
 import { Modal } from '../../components/modal';
-import { Button, Field, Input, Notice } from '../../components/ui';
+import { Button, Field, Input, Notice, Select } from '../../components/ui';
 import { api } from '../../services/api';
+import { RefItem } from '../../types';
 
 type Job = {
   id: string;
@@ -82,6 +83,10 @@ export function ImportPage() {
   const [saved, setSaved] = useState<SavedLink[]>([]);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftUrl, setDraftUrl] = useState('');
+  const [sports, setSports] = useState<RefItem[]>([]);
+  const [countries, setCountries] = useState<RefItem[]>([]);
+  const [importSportId, setImportSportId] = useState('');
+  const [importCountryId, setImportCountryId] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [analysisJob, setAnalysisJob] = useState<Job | null>(null);
@@ -108,6 +113,13 @@ export function ImportPage() {
   }
 
   useEffect(() => {
+    Promise.all([
+      api.get<RefItem[]>('/admin/taxonomies/sports'),
+      api.get<RefItem[]>('/admin/taxonomies/countries'),
+    ]).then(([sportRes, countryRes]) => {
+      setSports(sportRes.data);
+      setCountries(countryRes.data);
+    }).catch(() => undefined);
     void load().catch((reason: Error) => setError(reason.message));
     const timer = window.setInterval(() => {
       void load().catch(() => undefined);
@@ -267,9 +279,19 @@ export function ImportPage() {
     }
   }
 
+  function placement() {
+    if (!importSportId || !importCountryId) return null;
+    return { sportId: importSportId, countryId: importCountryId };
+  }
+
   async function importSaved(current: SavedLink) {
+    const chosen = placement();
+    if (!chosen) {
+      await dialog.alert('Escolha o esporte e o país antes de importar.');
+      return;
+    }
     try {
-      await api.post('/admin/scraping/import', { url: current.url });
+      await api.post('/admin/scraping/import', { url: current.url, ...chosen });
       setModal(null);
       setMessage(`Varredura de ${current.title} iniciada.`);
       await load();
@@ -343,8 +365,13 @@ export function ImportPage() {
       await dialog.alert('Informe o link do grupo.');
       return;
     }
+    const chosen = placement();
+    if (!chosen) {
+      await dialog.alert('Escolha o esporte e o país antes de importar.');
+      return;
+    }
     try {
-      await api.post('/admin/scraping/import', { url });
+      await api.post('/admin/scraping/import', { url, ...chosen });
       setModal(null);
       setMessage('Varredura do grupo iniciada. No fim, as peças que sumiram do fornecedor aparecem como fora de fabricação.');
       await load();
@@ -423,7 +450,21 @@ export function ImportPage() {
               Link do grupo
               <Input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} placeholder="" />
             </Field>
-            <p>A varredura marca novo, duplicado e alteração. A peça que já está no catálogo e não voltar nesse grupo fica como fora de fabricação.</p>
+            <Field>
+              Esporte
+              <Select value={importSportId} onChange={(event) => setImportSportId(event.target.value)}>
+                <option value="">Selecione</option>
+                {sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </Select>
+            </Field>
+            <Field>
+              País
+              <Select value={importCountryId} onChange={(event) => setImportCountryId(event.target.value)}>
+                <option value="">Selecione</option>
+                {countries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </Select>
+            </Field>
+            <p>Esporte e país valem para todas as peças deste grupo. A varredura marca novo, duplicado e alteração. A peça que já está no catálogo e não voltar nesse grupo fica como fora de fabricação.</p>
             <Actions>
               <Button type="button" $tone="ghost" onClick={(event) => void saveLink(event)}>{editingId ? 'Atualizar link' : 'Salvar link'}</Button>
               <Button type="submit">Importar</Button>

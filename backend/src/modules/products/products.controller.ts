@@ -14,7 +14,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminProductQueryDto, PatchFlagsDto, ReorderImagesDto, UpsertProductDto } from './dto/product.dto';
+import { AdminProductQueryDto, BulkEditDto, PatchFlagsDto, ReorderImagesDto, UpsertProductDto } from './dto/product.dto';
 import { ProductsService } from './products.service';
 
 @Controller('admin/products')
@@ -25,6 +25,11 @@ export class ProductsController {
   @Get()
   list(@Query() query: AdminProductQueryDto) {
     return this.products.list(query);
+  }
+
+  @Post('bulk')
+  bulk(@Body() dto: BulkEditDto) {
+    return this.products.bulk(dto);
   }
 
   @Get(':id')

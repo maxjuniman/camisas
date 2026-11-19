@@ -48,6 +48,12 @@ export class ImportUrlsDto {
   @ArrayMaxSize(40)
   @IsUrl({ require_protocol: true }, { each: true })
   urls?: string[];
+
+  @IsUUID()
+  sportId!: string;
+
+  @IsUUID()
+  countryId!: string;
 }
 
 export class ReviewDto {

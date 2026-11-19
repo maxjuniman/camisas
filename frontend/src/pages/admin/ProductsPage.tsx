@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
 import { useDialog } from '../../components/dialog';
-import { Button, Input, Notice, Select } from '../../components/ui';
+import { Modal } from '../../components/modal';
+import { Button, Field, Input, Notice, Select } from '../../components/ui';
 import { api } from '../../services/api';
 import { formatPrice } from '../../services/whatsapp';
 import { Product, RefItem, coverOf, statusLabel } from '../../types';
@@ -23,6 +24,14 @@ export function ProductsPage() {
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState('');
   const [total, setTotal] = useState(0);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [bulkScope, setBulkScope] = useState<'ids' | 'filter' | null>(null);
+  const [bulkSportId, setBulkSportId] = useState('');
+  const [bulkCountryId, setBulkCountryId] = useState('');
+  const [bulkCategoryId, setBulkCategoryId] = useState('');
+  const [bulkTeamId, setBulkTeamId] = useState('');
+  const [translateNames, setTranslateNames] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const dialog = useDialog();
@@ -42,6 +51,7 @@ export function ProductsPage() {
     const { data } = await api.get<Page>('/admin/products', { params });
     setItems(data.items);
     setTotal(data.total);
+    setPicked([]);
   }
 
   useEffect(() => {
@@ -105,6 +115,56 @@ export function ProductsPage() {
     setSelectionId((current) => (current === '*' ? current : keepTeam(current, sportId, value, true)));
   }
 
+  function togglePick(id: string) {
+    setPicked((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function openBulk(scope: 'ids' | 'filter') {
+    setBulkScope(scope);
+    setBulkSportId('');
+    setBulkCountryId('');
+    setBulkCategoryId('');
+    setBulkTeamId('');
+    setTranslateNames(true);
+  }
+
+  async function applyBulk(event: FormEvent) {
+    event.preventDefault();
+    if (!bulkScope) return;
+    if (!bulkSportId && !bulkCountryId && !bulkCategoryId && !bulkTeamId && !translateNames) {
+      await dialog.alert('Escolha ao menos uma alteração.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data } = await api.post<{ updated: number }>('/admin/products/bulk', {
+        scope: bulkScope,
+        ids: bulkScope === 'ids' ? picked : undefined,
+        q,
+        filterTeamId: selectionId && selectionId !== '*' ? selectionId : teamId,
+        filterSportId: sportId,
+        filterCountryId: countryId,
+        filterCategoryId: categoryId,
+        status,
+        national: selectionId === '*' ? true : undefined,
+        sportId: bulkSportId || undefined,
+        countryId: bulkCountryId || undefined,
+        categoryId: bulkCategoryId || undefined,
+        teamId: bulkTeamId || undefined,
+        translateNames,
+      });
+      setMessage(`${data.updated} produtos atualizados.`);
+      setBulkScope(null);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Falha ao editar os produtos.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const bulkTeams = teams.filter((team) => !team.isNational && (!bulkSportId || team.sportId === bulkSportId) && (!bulkCountryId || team.countryId === bulkCountryId));
+
   return (
     <section>
       <Head>
@@ -129,10 +189,19 @@ export function ProductsPage() {
       </Filters>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
-      <p>{total} produtos</p>
+      <Toolbar>
+        <p>{total} produtos</p>
+        <span>
+          <TextLink type="button" onClick={() => setPicked(picked.length === items.length && items.length ? [] : items.map((product) => product.id))}>
+            {picked.length === items.length && items.length ? 'Limpar seleção' : 'Selecionar esta página'}
+          </TextLink>
+          <Button type="button" $tone="ghost" disabled={!picked.length} onClick={() => openBulk('ids')}>Editar selecionados ({picked.length})</Button>
+          <Button type="button" disabled={!total} onClick={() => openBulk('filter')}>Editar todos do filtro ({total})</Button>
+        </span>
+      </Toolbar>
       {!error && items.length === 0 ? <p>Nenhum produto cadastrado.</p> : null}
       <Table>
-        <thead><tr><th></th><th>Produto</th><th>Preço</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th></th><th></th><th>Produto</th><th>Preço</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {items.map((product) => {
             const cover = coverOf(product);
@@ -141,6 +210,7 @@ export function ProductsPage() {
               : [product.country?.name, product.team?.name];
             return (
             <tr key={product.id}>
+              <td><input type="checkbox" checked={picked.includes(product.id)} onChange={() => togglePick(product.id)} aria-label={`Selecionar ${product.name}`} /></td>
               <td><Thumb>{cover ? <img src={cover.thumbUrl || cover.url} alt="" /> : null}</Thumb></td>
               <td>{product.name}<small>{[product.sport?.name, ...place].filter(Boolean).join(' · ')}</small></td>
               <td>{formatPrice(product.price)}</td>
@@ -155,11 +225,40 @@ export function ProductsPage() {
           })}
         </tbody>
       </Table>
+      {bulkScope ? (
+        <Modal title={bulkScope === 'ids' ? `Editar ${picked.length} produtos` : `Editar ${total} produtos`} onClose={() => setBulkScope(null)}>
+          <form onSubmit={(event) => void applyBulk(event)}>
+            <p>O que ficar em “Não alterar” permanece como está. O time, se escolhido, vale para todos. Traduzir nomes lê a legenda de cada peça e separa o time.</p>
+            <Grid>
+              <Field>Esporte<Select value={bulkSportId} onChange={(event) => { setBulkSportId(event.target.value); setBulkTeamId(''); }}><option value="">Não alterar</option>{sports.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+              <Field>País<Select value={bulkCountryId} onChange={(event) => { setBulkCountryId(event.target.value); setBulkTeamId(''); }}><option value="">Não alterar</option>{countries.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+              <Field>Categoria<Select value={bulkCategoryId} onChange={(event) => setBulkCategoryId(event.target.value)}><option value="">Não alterar</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+              <Field>Time<Select value={bulkTeamId} onChange={(event) => setBulkTeamId(event.target.value)}><option value="">Não alterar</option>{bulkTeams.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+            </Grid>
+            <label><input type="checkbox" checked={translateNames} onChange={(event) => setTranslateNames(event.target.checked)} /> Traduzir nomes para português</label>
+            <Actions>
+              <Button type="button" $tone="ghost" onClick={() => setBulkScope(null)}>Cancelar</Button>
+              <Button type="submit" disabled={saving}>{saving ? 'Salvando...' : 'Aplicar'}</Button>
+            </Actions>
+          </form>
+        </Modal>
+      ) : null}
     </section>
   );
 }
 
 const Head = styled.div`display: flex; justify-content: space-between; align-items: center; h1 { font-family: ${({ theme }) => theme.display}; font-size: 48px; text-transform: uppercase; }`;
+const Toolbar = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  span { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+`;
+const TextLink = styled.button`background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; font: inherit;`;
+const Grid = styled.div`display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0;`;
+const Actions = styled.div`display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;`;
 const Filters = styled.form`display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) 1.3fr auto; gap: 8px; @media (max-width: 1100px) { grid-template-columns: 1fr 1fr; } @media (max-width: 640px) { grid-template-columns: 1fr; }`;
 const Thumb = styled.div`
   width: 48px;

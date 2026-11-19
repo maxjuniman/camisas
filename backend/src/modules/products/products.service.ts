@@ -3,8 +3,10 @@ import { Prisma, ProductStatus } from '@prisma/client';
 import { productInclude, serializeProduct } from '../../common/serialize';
 import { normalizeName, slugify } from '../../common/text';
 import { PrismaService } from '../../prisma/prisma.service';
+import { captionTeam, hasChinese } from '../scraping/caption-pt';
+import { friendlyName } from '../scraping/catalog-name';
 import { MediaService } from '../media/media.service';
-import { AdminProductQueryDto, PatchFlagsDto, UpsertProductDto } from './dto/product.dto';
+import { AdminProductQueryDto, BulkEditDto, PatchFlagsDto, UpsertProductDto } from './dto/product.dto';
 
 @Injectable()
 export class ProductsService {
@@ -82,6 +84,83 @@ export class ProductsService {
       });
     });
     return serializeProduct(product);
+  }
+
+  async bulk(dto: BulkEditDto) {
+    if (!dto.sportId && !dto.countryId && !dto.categoryId && !dto.teamId && !dto.translateNames) {
+      throw new BadRequestException('Escolha o que deseja alterar.');
+    }
+    if (dto.scope === 'ids' && !dto.ids?.length) throw new BadRequestException('Selecione ao menos um produto.');
+    const where: Prisma.ProductWhereInput = dto.scope === 'ids'
+      ? { id: { in: dto.ids } }
+      : {
+          ...(dto.filterTeamId ? { teamId: dto.filterTeamId } : {}),
+          ...(dto.filterSportId ? { sportId: dto.filterSportId } : {}),
+          ...(dto.filterCountryId ? { countryId: dto.filterCountryId } : {}),
+          ...(dto.filterCategoryId ? { categoryId: dto.filterCategoryId } : {}),
+          ...(dto.national === true ? { team: { isNational: true } } : {}),
+          ...(dto.national === false ? { team: { isNational: false } } : {}),
+          ...(dto.status ? { status: dto.status } : {}),
+          ...(dto.q?.trim()
+            ? { OR: [{ name: { contains: dto.q.trim(), mode: 'insensitive' } }, { externalId: { contains: dto.q.trim(), mode: 'insensitive' } }] }
+            : {}),
+        };
+    const products = await this.prisma.product.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        sportId: true,
+        countryId: true,
+        teamId: true,
+        team: { select: { sportId: true, countryId: true } },
+      },
+    });
+    const [teams, sports, countries, slugs] = await Promise.all([
+      this.prisma.team.findMany({ select: { id: true, name: true, slug: true, isNational: true, sportId: true, countryId: true } }),
+      this.prisma.sport.findMany({ where: { isActive: true }, select: { id: true, slug: true } }),
+      this.prisma.country.findMany({ where: { isActive: true }, select: { id: true, name: true } }),
+      this.prisma.product.findMany({ select: { slug: true } }),
+    ]);
+    const usedSlugs = new Set(slugs.map((item) => item.slug));
+    let updated = 0;
+    for (const product of products) {
+      const data: Prisma.ProductUpdateInput = {};
+      if (dto.sportId) data.sport = { connect: { id: dto.sportId } };
+      if (dto.countryId) data.country = { connect: { id: dto.countryId } };
+      if (dto.categoryId) data.category = { connect: { id: dto.categoryId } };
+      if (dto.teamId) data.team = { connect: { id: dto.teamId } };
+      if (dto.translateNames && hasChinese(product.name)) {
+        const translated = friendlyName(product.name).trim();
+        if (translated.length >= 2 && translated !== product.name) {
+          const slug = this.takeSlug(translated, product.slug, usedSlugs);
+          data.name = translated;
+          data.normalizedName = normalizeName(translated);
+          data.slug = slug;
+        }
+        if (!dto.teamId) {
+          const parsed = captionTeam(product.name);
+          if (parsed) {
+            const sportId = dto.sportId || sports.find((sport) => sport.slug === parsed.sport)?.id || null;
+            const countryId = dto.countryId || countries.find((country) => country.name.toLowerCase() === parsed.country.toLowerCase())?.id || null;
+            const teamId = await this.ensureCatalogTeam(parsed.name, sportId, countryId, teams);
+            data.team = { connect: { id: teamId } };
+            if (!dto.sportId && sportId) data.sport = { connect: { id: sportId } };
+            if (!dto.countryId && countryId) data.country = { connect: { id: countryId } };
+          }
+        }
+      }
+      if (!dto.teamId && !data.team && product.teamId && (dto.sportId || dto.countryId)) {
+        const wrongSport = Boolean(dto.sportId && product.team?.sportId && product.team.sportId !== dto.sportId);
+        const wrongCountry = Boolean(dto.countryId && product.team?.countryId && product.team.countryId !== dto.countryId);
+        if (wrongSport || wrongCountry) data.team = { disconnect: true };
+      }
+      if (!Object.keys(data).length) continue;
+      await this.prisma.product.update({ where: { id: product.id }, data });
+      updated += 1;
+    }
+    return { updated };
   }
 
   async patchFlags(id: string, dto: PatchFlagsDto) {
@@ -185,6 +264,54 @@ export class ProductsService {
       availabilityNote: dto.availabilityNote?.trim() ?? '',
       orderNote: dto.orderNote?.trim() ?? '',
     };
+  }
+
+  private takeSlug(name: string, current: string, used: Set<string>) {
+    const base = slugify(name);
+    let slug = base;
+    let index = 2;
+    while (used.has(slug) && slug !== current) {
+      slug = `${base}-${index}`;
+      index += 1;
+    }
+    if (slug !== current) {
+      used.delete(current);
+      used.add(slug);
+    }
+    return slug;
+  }
+
+  private async ensureCatalogTeam(
+    name: string,
+    sportId: string | null,
+    countryId: string | null,
+    teams: { id: string; name: string; slug: string; isNational: boolean; sportId: string | null; countryId: string | null }[],
+  ) {
+    const key = normalizeName(name);
+    const found = teams.find((team) => !team.isNational && normalizeName(team.name) === key);
+    if (found) {
+      const data: { sportId?: string; countryId?: string } = {};
+      if (sportId && found.sportId !== sportId) data.sportId = sportId;
+      if (countryId && found.countryId !== countryId) data.countryId = countryId;
+      if (Object.keys(data).length) {
+        await this.prisma.team.update({ where: { id: found.id }, data });
+        found.sportId = sportId || found.sportId;
+        found.countryId = countryId || found.countryId;
+      }
+      return found.id;
+    }
+    let slug = slugify(name);
+    let index = 2;
+    while (teams.some((team) => team.slug === slug)) {
+      slug = `${slugify(name)}-${index}`;
+      index += 1;
+    }
+    const created = await this.prisma.team.create({
+      data: { name, slug, sportId, countryId, isNational: false, sortOrder: teams.length },
+      select: { id: true, name: true, slug: true, isNational: true, sportId: true, countryId: true },
+    });
+    teams.push(created);
+    return created.id;
   }
 
   private async uniqueSlug(name: string, ignoreId?: string) {
