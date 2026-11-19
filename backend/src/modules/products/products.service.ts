@@ -21,6 +21,8 @@ export class ProductsService {
       ...(query.sportId ? { sportId: query.sportId } : {}),
       ...(query.countryId ? { countryId: query.countryId } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.national === true ? { team: { isNational: true } } : {}),
+      ...(query.national === false ? { team: { isNational: false } } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.isActive != null ? { isActive: query.isActive } : {}),
       ...(query.q?.trim()

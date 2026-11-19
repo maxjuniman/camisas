@@ -5,7 +5,7 @@ import { productInclude, serializeProduct } from '../../common/serialize';
 import { normalizeName, similarity, slugify } from '../../common/text';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
-import { countryFromChampionship, friendlyName, parseSizeNames, publicTeamName, sizeSortOrder } from './catalog-name';
+import { countryFromChampionship, friendlyName, isNationalGroup, nationalTeamFromTitle, parseSizeNames, portugueseCountry, publicTeamName, sizeSortOrder } from './catalog-name';
 import { ImportUrlsDto, ReviewDto } from './dto/scraping.dto';
 import {
   AlbumRef,
@@ -558,10 +558,23 @@ export class ScrapingService implements OnModuleInit {
       return;
     }
     const country = countryFromChampionship(catalog.championship);
-    const albums = catalog.albums.map((album) => ({ ...album, country }));
-    const names = [...new Set(albums.map((album) => album.team).filter((team): team is string => Boolean(team)))];
+    const leafNational = nationalTeamFromTitle(catalog.championship);
+    const groupNational = isNationalGroup(catalog.championship);
+    const albums = catalog.albums.map((album) => {
+      if (leafNational) return { ...album, team: leafNational, country: leafNational, national: true };
+      if (groupNational && album.team) {
+        const name = nationalTeamFromTitle(album.team) || portugueseCountry(album.team);
+        return { ...album, team: name, country: name, national: true };
+      }
+      return { ...album, country: album.country || country };
+    });
+    const seen = new Map<string, { country?: string; national: boolean }>();
+    for (const album of albums) {
+      if (!album.team || seen.has(album.team)) continue;
+      seen.set(album.team, { country: album.country, national: album.national === true });
+    }
     const canonical = new Map<string, string>();
-    for (const name of names) canonical.set(name, await this.ensureTeam(name, country));
+    for (const [name, meta] of seen) canonical.set(name, await this.ensureTeam(name, meta.country, meta.national));
     for (const album of albums) {
       if (album.team) album.team = canonical.get(album.team) || album.team;
     }
@@ -696,7 +709,7 @@ export class ScrapingService implements OnModuleInit {
     const sizeNames = parseSizeNames(name);
     await this.ensureSizes(sizeNames);
     const suggestions = await this.suggest(name, sizeNames);
-    if (album.team) suggestions.team = await this.ensureTeam(album.team, album.country);
+    if (album.team) suggestions.team = await this.ensureTeam(album.team, album.country, album.national === true);
 
     let matchStatus: MatchStatus = 'NEW';
     let linkedProductId: string | null = byOrigin?.id ?? null;
@@ -886,17 +899,18 @@ export class ScrapingService implements OnModuleInit {
     return { ...item, displayName: item.displayName || friendlyName(item.rawName) };
   }
 
-  private async ensureTeam(rawName: string, countryName?: string) {
-    const name = publicTeamName(rawName);
-    const cacheKey = `${normalizeName(name)}|${countryName || ''}`;
+  private async ensureTeam(rawName: string, countryName?: string, national = false) {
+    const name = national ? portugueseCountry(rawName) : publicTeamName(rawName);
+    const cacheKey = `${normalizeName(name)}|${countryName || ''}|${national ? '1' : '0'}`;
     const cached = this.teamNames.get(cacheKey);
     if (cached) return cached;
     const existing = await this.prisma.team.findMany({
-      select: { id: true, name: true, sportId: true, countryId: true },
+      select: { id: true, name: true, sportId: true, countryId: true, isNational: true },
     });
-    const found = existing.find(
-      (team) => normalizeName(team.name) === normalizeName(name) || normalizeName(team.name) === normalizeName(rawName),
-    );
+    const found = existing.find((team) => {
+      const sameName = normalizeName(team.name) === normalizeName(name) || normalizeName(team.name) === normalizeName(rawName);
+      return sameName && team.isNational === national;
+    });
     const sport = await this.prisma.sport.findFirst({ where: { slug: 'futebol', isActive: true } });
     const country = countryName ? await this.ensureCountry(countryName) : null;
     if (found) {
@@ -914,7 +928,7 @@ export class ScrapingService implements OnModuleInit {
       index += 1;
     }
     const created = await this.prisma.team.create({
-      data: { name, slug, sportId: sport?.id, countryId: country?.id, sortOrder: existing.length },
+      data: { name, slug, sportId: sport?.id, countryId: country?.id, isNational: national, sortOrder: existing.length },
     });
     this.teamNames.set(cacheKey, created.name);
     return created.name;
@@ -1031,6 +1045,7 @@ export class ScrapingService implements OnModuleInit {
         cover: typeof row.cover === 'string' ? row.cover : undefined,
         team: typeof row.team === 'string' ? row.team : undefined,
         country: typeof row.country === 'string' ? row.country : undefined,
+        national: row.national === true,
       });
     }
     return albums;

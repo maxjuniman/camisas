@@ -151,6 +151,11 @@ export class AdminProductQueryDto {
   isActive?: boolean;
 
   @IsOptional()
+  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @IsBoolean()
+  national?: boolean;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   page?: number;

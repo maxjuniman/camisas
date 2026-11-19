@@ -51,6 +51,108 @@ export function publicTeamName(raw: string): string {
   return known || raw.replace(/\s+/g, ' ').trim();
 }
 
+const COUNTRIES: Record<string, string> = {
+  brazil: 'Brasil',
+  brasil: 'Brasil',
+  england: 'Inglaterra',
+  spain: 'Espanha',
+  espana: 'Espanha',
+  germany: 'Alemanha',
+  france: 'França',
+  italy: 'Itália',
+  italia: 'Itália',
+  netherlands: 'Holanda',
+  holland: 'Holanda',
+  'united states': 'EUA',
+  usa: 'EUA',
+  mexico: 'México',
+  japan: 'Japão',
+  argentina: 'Argentina',
+  portugal: 'Portugal',
+  uruguay: 'Uruguai',
+  belgium: 'Bélgica',
+  croatia: 'Croácia',
+  switzerland: 'Suíça',
+  sweden: 'Suécia',
+  norway: 'Noruega',
+  denmark: 'Dinamarca',
+  poland: 'Polônia',
+  scotland: 'Escócia',
+  wales: 'País de Gales',
+  ireland: 'Irlanda',
+  'south korea': 'Coreia do Sul',
+  korea: 'Coreia do Sul',
+  australia: 'Austrália',
+  canada: 'Canadá',
+  morocco: 'Marrocos',
+  senegal: 'Senegal',
+  cameroon: 'Camarões',
+  nigeria: 'Nigéria',
+  ghana: 'Gana',
+  ecuador: 'Equador',
+  colombia: 'Colômbia',
+  chile: 'Chile',
+  peru: 'Peru',
+  paraguay: 'Paraguai',
+  'costa rica': 'Costa Rica',
+  'saudi arabia': 'Arábia Saudita',
+  turkey: 'Turquia',
+  greece: 'Grécia',
+  czechia: 'Tchéquia',
+  'czech republic': 'Tchéquia',
+  austria: 'Áustria',
+  hungary: 'Hungria',
+  serbia: 'Sérvia',
+  ukraine: 'Ucrânia',
+  russia: 'Rússia',
+  china: 'China',
+  'south africa': 'África do Sul',
+  egypt: 'Egito',
+  tunisia: 'Tunísia',
+  algeria: 'Argélia',
+  iran: 'Irã',
+  qatar: 'Catar',
+  'united arab emirates': 'Emirados Árabes',
+  'ivory coast': 'Costa do Marfim',
+  jamaica: 'Jamaica',
+};
+
+function fold(value: string) {
+  return value
+    .replace(/\p{Extended_Pictographic}/gu, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+export function portugueseCountry(raw: string): string {
+  const key = fold(raw);
+  return COUNTRIES[key] || raw.replace(/\s+/g, ' ').trim();
+}
+
+export function nationalTeamFromTitle(title: string): string | undefined {
+  const plain = title.replace(/\p{Extended_Pictographic}/gu, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = fold(plain);
+  const marked = normalized.includes('team column') || /\bnational teams?\b/.test(normalized) || /\bselecao\b|\bseleccion\b/.test(normalized);
+  if (!marked) return undefined;
+  const country = fold(plain)
+    .replace(/\bteam columns?\b/g, ' ')
+    .replace(/\bnational teams?\b/g, ' ')
+    .replace(/\bselecao\b|\bseleccion\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!country) return undefined;
+  return portugueseCountry(country);
+}
+
+export function isNationalGroup(title: string): boolean {
+  const normalized = fold(title);
+  return (/\bnational teams?\b/.test(normalized) || /\bselecoes\b/.test(normalized)) && !nationalTeamFromTitle(title);
+}
+
 export function countryFromChampionship(title: string): string | undefined {
   const normalized = title
     .normalize('NFD')
@@ -77,6 +179,7 @@ export function friendlyName(raw: string): string {
     [/long[- ]sleeved?/gi, 'manga longa'],
     [/windbreaker/gi, 'corta-vento'],
     [/gremio/gi, 'Grêmio'],
+    [/\bbrazil\b/gi, 'Brasil'],
     [/women'?s|womens/gi, 'feminina'],
     [/\bkids?\b/gi, 'infantil'],
     [/\bthird\b/gi, 'terceira'],

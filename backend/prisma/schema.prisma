@@ -77,9 +77,10 @@ model Team {
   sortOrder Int       @default(0)
   sportId   String?
   sport     Sport?    @relation(fields: [sportId], references: [id], onDelete: SetNull)
-  countryId String?
-  country   Country?  @relation(fields: [countryId], references: [id], onDelete: SetNull)
-  products  Product[]
+  countryId  String?
+  country    Country?  @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  isNational Boolean   @default(false)
+  products   Product[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 

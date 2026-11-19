@@ -18,6 +18,7 @@ export type AlbumRef = {
   cover?: string;
   team?: string;
   country?: string;
+  national?: boolean;
 };
 
 export type CatalogDiscovery = {

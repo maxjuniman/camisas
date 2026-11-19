@@ -1,0 +1,1 @@
+ALTER TABLE "Team" ADD COLUMN "isNational" BOOLEAN NOT NULL DEFAULT false;

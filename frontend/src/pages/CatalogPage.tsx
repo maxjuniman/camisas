@@ -19,15 +19,6 @@ type Filters = {
 
 type Page = { items: Product[]; total: number; page: number; pageSize: number };
 
-const groups = [
-  ['sports', 'Esporte'],
-  ['countries', 'País'],
-  ['teams', 'Time'],
-  ['sizes', 'Tamanho'],
-  ['genders', 'Sexo'],
-  ['categories', 'Categoria'],
-] as const;
-
 export function CatalogPage() {
   const [params, setParams] = useSearchParams();
   const [filters, setFilters] = useState<Filters | null>(null);
@@ -85,20 +76,31 @@ export function CatalogPage() {
   }
 
   const pages = page ? Math.max(1, Math.ceil(page.total / page.pageSize)) : 1;
+  const clubs = (filters?.teams ?? []).filter((item) => !item.isNational);
+  const nationals = (filters?.teams ?? []).filter((item) => item.isNational);
+  const groups = [
+    { key: 'sports', label: 'Esporte', items: filters?.sports ?? [] },
+    { key: 'countries', label: 'País', items: filters?.countries ?? [] },
+    { key: 'teams', label: 'Seleção', items: nationals },
+    { key: 'teams', label: 'Time', items: clubs },
+    { key: 'sizes', label: 'Tamanho', items: filters?.sizes ?? [] },
+    { key: 'genders', label: 'Sexo', items: filters?.genders ?? [] },
+    { key: 'categories', label: 'Categoria', items: filters?.categories ?? [] },
+  ].filter((group) => group.label !== 'Seleção' || group.items.length > 0);
 
   return (
     <Wrap>
       <Layout>
         <Aside>
           <h1>Catálogo</h1>
-          {groups.map(([key, label]) => (
-            <Group key={key}>
-              <strong>{label}</strong>
-              {(filters?.[key] ?? []).map((item) => {
-                const selected = (params.get(key) || '').split(',').includes(item.slug);
+          {groups.map((group) => (
+            <Group key={group.label}>
+              <strong>{group.label}</strong>
+              {group.items.map((item) => {
+                const selected = (params.get(group.key) || '').split(',').includes(item.slug);
                 return (
                   <label key={item.id}>
-                    <input type="checkbox" checked={selected} onChange={() => toggle(key, item.slug)} />
+                    <input type="checkbox" checked={selected} onChange={() => toggle(group.key, item.slug)} />
                     {item.name}
                   </label>
                 );

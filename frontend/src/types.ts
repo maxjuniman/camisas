@@ -8,6 +8,7 @@ export type RefItem = {
   countryId?: string | null;
   sport?: { id: string; name: string; slug: string } | null;
   country?: { id: string; name: string; slug: string } | null;
+  isNational?: boolean;
 };
 
 export type ProductImage = {
