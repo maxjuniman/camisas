@@ -248,27 +248,29 @@ export function ProductsPage() {
           <option value="DRAFT">Rascunho</option>
           <option value="IGNORED">Ignorado</option>
         </Select></Field>
-        <Field>Ordenar<Select value={sort} onChange={(event) => changeSort(event.target.value)}>
-          <option value="recent">Mais recentes</option>
-          <option value="oldest">Mais antigos</option>
-          <option value="name">Nome</option>
-          <option value="name-desc">Nome invertido</option>
-          <option value="price">Menor preço</option>
-          <option value="price-desc">Maior preço</option>
-        </Select></Field>
-        <Field>Por página<Select value={String(pageSize)} onChange={(event) => changePageSize(event.target.value)}>
-          <option value="20">20</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-          <option value="200">200</option>
-        </Select></Field>
         <Field>Pesquisar<Input value={q} onChange={(event) => setQ(event.target.value)} /></Field>
         <Submit><Button type="submit" $tone="ink" disabled={loading}>{loading ? 'Buscando...' : 'Filtrar'}</Button></Submit>
       </Filters>
       {message ? <Notice $kind="ok">{message}</Notice> : null}
       {error ? <Notice $kind="error">{error}</Notice> : null}
       <Toolbar>
-        <p>{loading ? 'Buscando...' : `${total} produtos`}{!loading && pages > 1 ? ` · página ${page} de ${pages}` : ''}</p>
+        <ListTools>
+          <Field>Ordenar<Select value={sort} onChange={(event) => changeSort(event.target.value)}>
+            <option value="recent">Mais recentes</option>
+            <option value="oldest">Mais antigos</option>
+            <option value="name">Nome</option>
+            <option value="name-desc">Nome invertido</option>
+            <option value="price">Menor preço</option>
+            <option value="price-desc">Maior preço</option>
+          </Select></Field>
+          <Field>Por página<Select value={String(pageSize)} onChange={(event) => changePageSize(event.target.value)}>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </Select></Field>
+          <p>{loading ? 'Buscando...' : `${total} produtos`}{!loading && pages > 1 ? ` · página ${page} de ${pages}` : ''}</p>
+        </ListTools>
         <span>
           <Button type="button" $tone="ghost" disabled={!picked.length} onClick={() => openBulk('ids')}>Editar selecionados ({picked.length})</Button>
           <Button type="button" disabled={!total} onClick={() => openBulk('filter')}>Editar todos do filtro ({total})</Button>
@@ -356,14 +358,23 @@ function pageList(current: number, last: number): Array<number | '…'> {
   return list;
 }
 const Filters = styled.form`
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(140px, 1.5fr) auto;
+  gap: 8px;
   align-items: end;
-  gap: 12px;
-  > label { flex: 1 1 220px; min-width: 220px; }
-  select { min-width: 220px; }
+  label { min-width: 0; font-size: 12px; }
+  select, input { min-width: 0; padding: 8px 10px; }
+  @media (max-width: 1100px) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 640px) { grid-template-columns: 1fr 1fr; }
 `;
 const Submit = styled.div`flex: 0 0 auto;`;
+const ListTools = styled.div`
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  label { width: 180px; font-size: 12px; }
+  p { margin: 0 0 8px; }
+`;
 const Thumb = styled.div`
   width: 48px;
   height: 48px;
