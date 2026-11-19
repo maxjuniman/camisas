@@ -40,6 +40,8 @@ export function ProductFormPage() {
   const [sizeIds, setSizeIds] = useState<string[]>([]);
   const [files, setFiles] = useState<FileList | null>(null);
   const [images, setImages] = useState<Product['images']>([]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const dialog = useDialog();
@@ -138,17 +140,24 @@ export function ProductFormPage() {
     setImages(data.images);
   }
 
-  async function moveImage(index: number, direction: -1 | 1) {
-    if (!id) return;
-    const next = index + direction;
-    if (next < 0 || next >= images.length) return;
+  async function dropImage(targetId: string) {
+    const sourceId = dragId;
+    setDragId(null);
+    setOverId(null);
+    if (!id || !sourceId || sourceId === targetId) return;
     const order = images.map((image) => image.id);
-    const [moved] = order.splice(index, 1);
-    order.splice(next, 0, moved);
+    const from = order.indexOf(sourceId);
+    const to = order.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    order.splice(from, 1);
+    order.splice(to, 0, sourceId);
+    const previous = images;
+    setImages(order.map((imageId) => images.find((image) => image.id === imageId)!));
     try {
       const { data } = await api.patch<Product>(`/admin/products/${id}/images/order`, { imageIds: order });
       setImages(data.images);
     } catch (reason) {
+      setImages(previous);
       await dialog.alert(reason instanceof Error ? reason.message : 'Falha ao ordenar as fotos.');
     }
   }
@@ -206,16 +215,23 @@ export function ProductFormPage() {
         {error ? <Notice $kind="error">{error}</Notice> : null}
         <Button type="submit">Salvar</Button>
       </Form>
-      {images.length ? <p>A primeira foto é a capa. Use os botões para mudar a ordem.</p> : null}
+      {images.length ? <p>Arraste as fotos para mudar a ordem. A primeira é a capa.</p> : null}
       <Photos>
         {images.map((image, index) => (
-          <figure key={image.id}>
-            <img src={image.thumbUrl || image.url} alt={image.alt} />
+          <Photo
+            key={image.id}
+            draggable
+            $dragging={dragId === image.id}
+            $over={overId === image.id && dragId !== image.id}
+            onDragStart={() => setDragId(image.id)}
+            onDragEnd={() => { setDragId(null); setOverId(null); }}
+            onDragOver={(event) => { event.preventDefault(); setOverId(image.id); }}
+            onDrop={(event) => { event.preventDefault(); void dropImage(image.id); }}
+          >
+            <img src={image.thumbUrl || image.url} alt={image.alt} draggable={false} />
             <span>{index === 0 ? 'Capa' : `Foto ${index + 1}`}</span>
-            <button type="button" onClick={() => void moveImage(index, -1)} disabled={index === 0}>Mover para antes</button>
-            <button type="button" onClick={() => void moveImage(index, 1)} disabled={index === images.length - 1}>Mover para depois</button>
             <button type="button" onClick={() => void removeImage(image.id)}>Excluir</button>
-          </figure>
+          </Photo>
         ))}
       </Photos>
     </section>
@@ -236,11 +252,17 @@ function Choice({ name, options, register, onPick }: { name: string; options: Re
 
 const Form = styled.form`display: grid; gap: 12px; max-width: 760px; fieldset { border: 1px solid ${({ theme }) => theme.line}; display: flex; flex-wrap: wrap; gap: 10px; }`;
 const Checks = styled.div`display: flex; flex-wrap: wrap; gap: 14px;`;
-const Photos = styled.div`
-  display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px;
-  figure { width: 140px; display: grid; gap: 4px; }
+const Photos = styled.div`display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px;`;
+const Photo = styled.figure<{ $dragging?: boolean; $over?: boolean }>`
+  width: 140px;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  cursor: grab;
+  opacity: ${({ $dragging }) => ($dragging ? 0.45 : 1)};
+  outline: ${({ $over, theme }) => ($over ? `2px solid ${theme.ink}` : 'none')};
+  outline-offset: 4px;
   img { width: 140px; height: 176px; object-fit: cover; }
   span { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
   button { background: none; border: 0; padding: 0; text-align: left; text-decoration: underline; cursor: pointer; }
-  button:disabled { opacity: 0.35; cursor: not-allowed; text-decoration: none; }
 `;
