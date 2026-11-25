@@ -104,9 +104,11 @@ const Row = styled.div`
 `;
 
 const Brand = styled(Link)`
-  display: flex;
-  align-items: center;
-  img { height: 72px; width: auto; }
+  display: grid;
+  place-items: center;
+  height: 76px;
+  overflow: hidden;
+  img { height: 128px; width: auto; }
 `;
 
 const FooterMark = styled(Link)`
@@ -129,7 +131,7 @@ const Nav = styled.nav<{ $open: boolean }>`
   @media (max-width: 860px) {
     display: ${({ $open }) => ($open ? 'flex' : 'none')};
     position: absolute;
-    top: 76px;
+    top: 84px;
     left: 0;
     right: 0;
     flex-direction: column;
