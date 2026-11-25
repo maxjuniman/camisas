@@ -7,17 +7,20 @@ export function formatPrice(value: number) {
   }).format(value);
 }
 
-export function orderMessage(input: { name: string; price: number; slug: string; size: string }) {
+export function orderMessage(input: { name: string; price: number; slug: string; size: string; ready?: boolean }) {
   const link = `${window.location.origin}/produto/${input.slug}`;
   return [
-    'Olá! Gostaria de fazer uma encomenda.',
+    input.ready ? 'Olá! Quero reservar esta peça em pronta entrega.' : 'Olá! Gostaria de fazer uma encomenda.',
     '',
     `Produto: ${input.name}`,
     `Tamanho: ${input.size}`,
+    `Tipo: ${input.ready ? 'Pronta entrega' : 'Encomenda'}`,
     `Preço: ${formatPrice(input.price)}`,
     `Link do produto: ${link}`,
     '',
-    'Gostaria de mais informações sobre disponibilidade e prazo de entrega.',
+    input.ready
+      ? 'A peça está marcada como pronta entrega no site.'
+      : 'Gostaria de mais informações sobre disponibilidade e prazo de entrega.',
   ].join('\n');
 }
 

@@ -9,6 +9,7 @@ export const productInclude = {
   season: true,
   images: { orderBy: { sortOrder: 'asc' as const } },
   sizes: { include: { size: true }, orderBy: { size: { sortOrder: 'asc' as const } } },
+  stockSizes: { include: { size: true }, orderBy: { size: { sortOrder: 'asc' as const } } },
 } satisfies Prisma.ProductInclude;
 
 type ProductWithRelations = Prisma.ProductGetPayload<{ include: typeof productInclude }>;
@@ -27,6 +28,7 @@ export function serializeProduct(product: ProductWithRelations) {
     category: product.category,
     season: product.season,
     sizes: product.sizes.map((item) => item.size),
+    stockSizes: product.stockSizes.map((item) => item.size),
     images: product.images.map((image) => ({
       id: image.id,
       url: image.url,
@@ -41,6 +43,7 @@ export function serializeProduct(product: ProductWithRelations) {
     availableForOrder: product.availableForOrder,
     isFeatured: product.isFeatured,
     isLaunch: product.isLaunch,
+    readyToShip: product.readyToShip,
     availabilityNote: product.availabilityNote,
     orderNote: product.orderNote,
     sourceUrl: product.sourceUrl,

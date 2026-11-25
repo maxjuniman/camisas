@@ -143,6 +143,7 @@ model Size {
   sortOrder Int           @default(0)
   isActive  Boolean       @default(true)
   products  ProductSize[]
+  stock     ProductStockSize[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 }
@@ -170,6 +171,7 @@ model Product {
   availableForOrder   Boolean              @default(false)
   isFeatured          Boolean              @default(false)
   isLaunch            Boolean              @default(false)
+  readyToShip         Boolean              @default(false)
   availabilityNote    String               @default("")
   orderNote           String               @default("")
   sourceUrl           String?              @unique
@@ -180,12 +182,14 @@ model Product {
   discontinued        Boolean              @default(false)
   images              ProductImage[]
   sizes               ProductSize[]
+  stockSizes          ProductStockSize[]
   scrapedItems        ScrapedProduct[]
   duplicateCandidates DuplicateCandidate[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
   @@index([status, isActive, availableForOrder])
+  @@index([readyToShip])
   @@index([normalizedName])
   @@index([countryId])
   @@index([groupKey])
@@ -208,6 +212,15 @@ model ProductImage {
 }
 
 model ProductSize {
+  productId String
+  sizeId    String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size      Size    @relation(fields: [sizeId], references: [id])
+
+  @@id([productId, sizeId])
+}
+
+model ProductStockSize {
   productId String
   sizeId    String
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)

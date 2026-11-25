@@ -93,6 +93,22 @@ export function CatalogPage() {
       <Layout>
         <Aside>
           <h1>Catálogo</h1>
+          <Group>
+            <label>
+              <input
+                type="checkbox"
+                checked={params.get('ready') === '1'}
+                onChange={() => {
+                  const copy = new URLSearchParams(params);
+                  if (copy.get('ready') === '1') copy.delete('ready');
+                  else copy.set('ready', '1');
+                  copy.delete('page');
+                  setParams(copy);
+                }}
+              />
+              Pronta entrega
+            </label>
+          </Group>
           {groups.map((group) => (
             <Group key={group.label}>
               <strong>{group.label}</strong>

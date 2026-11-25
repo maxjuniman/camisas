@@ -42,6 +42,8 @@ export function ReviewPage() {
   const [categoryId, setCategoryId] = useState('');
   const [seasonId, setSeasonId] = useState('');
   const [sizeIds, setSizeIds] = useState<string[]>([]);
+  const [stockSizeIds, setStockSizeIds] = useState<string[]>([]);
+  const [readyToShip, setReadyToShip] = useState(false);
   const [importImages, setImportImages] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [availableForOrder, setAvailableForOrder] = useState(true);
@@ -90,6 +92,8 @@ export function ReviewPage() {
       setSeasonId(product?.season?.id || matchSeason(nextLists.seasons, current.rawName));
       const suggested = new Set((current.suggestedSizes || '').split(',').map((size) => size.trim().toLowerCase()).filter(Boolean));
       setSizeIds(product?.sizes.map((size) => size.id) || nextLists.sizes.filter((size) => suggested.has(size.name.toLowerCase())).map((size) => size.id));
+      setStockSizeIds(product?.stockSizes.map((size) => size.id) || []);
+      setReadyToShip(product?.readyToShip ?? false);
       setIsActive(product?.isActive ?? true);
       setAvailableForOrder(product?.availableForOrder ?? true);
       setIsFeatured(product?.isFeatured ?? false);
@@ -103,6 +107,10 @@ export function ReviewPage() {
   async function approve(event: FormEvent) {
     event.preventDefault();
     if (!id) return;
+    if (readyToShip && stockSizeIds.length === 0) {
+      setError('Marque ao menos um tamanho na grade de pronta entrega.');
+      return;
+    }
     try {
       await api.post(`/admin/scraping/items/${id}/review`, {
         action: 'approve',
@@ -116,6 +124,8 @@ export function ReviewPage() {
         categoryId: categoryId || null,
         seasonId: seasonId || null,
         sizeIds,
+        stockSizeIds: readyToShip ? stockSizeIds : [],
+        readyToShip,
         importImages,
         isActive,
         availableForOrder,
@@ -255,7 +265,7 @@ export function ReviewPage() {
         <SelectField label="Categoria" value={categoryId} setValue={setCategoryId} options={lists.categories} />
         <SelectField label="Temporada" value={seasonId} setValue={setSeasonId} options={lists.seasons} />
         <fieldset>
-          <legend>Tamanhos {item.suggestedSizes ? `· sugestão ${item.suggestedSizes}` : ''}</legend>
+          <legend>Tamanhos para encomenda {item.suggestedSizes ? `· sugestão ${item.suggestedSizes}` : ''}</legend>
           {lists.sizes.map((size) => (
             <label key={size.id}>
               <input type="checkbox" checked={sizeIds.includes(size.id)} onChange={() => setSizeIds((current) => current.includes(size.id) ? current.filter((value) => value !== size.id) : [...current, size.id])} />
@@ -268,6 +278,18 @@ export function ReviewPage() {
         <label><input type="checkbox" checked={availableForOrder} onChange={(event) => setAvailableForOrder(event.target.checked)} /> Disponível para encomenda</label>
         <label><input type="checkbox" checked={isFeatured} onChange={(event) => setIsFeatured(event.target.checked)} /> Destaque</label>
         <label><input type="checkbox" checked={isLaunch} onChange={(event) => setIsLaunch(event.target.checked)} /> Lançamento</label>
+        <label><input type="checkbox" checked={readyToShip} onChange={(event) => setReadyToShip(event.target.checked)} /> Pronta entrega</label>
+        {readyToShip ? (
+          <fieldset>
+            <legend>Tamanhos em pronta entrega</legend>
+            {lists.sizes.map((size) => (
+              <label key={size.id}>
+                <input type="checkbox" checked={stockSizeIds.includes(size.id)} onChange={() => setStockSizeIds((current) => current.includes(size.id) ? current.filter((value) => value !== size.id) : [...current, size.id])} />
+                {size.name}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <Field>Disponibilidade<TextArea value={availabilityNote} onChange={(event) => setAvailabilityNote(event.target.value)} /></Field>
         <Field>Observações<TextArea value={orderNote} onChange={(event) => setOrderNote(event.target.value)} /></Field>
         {error ? <Notice $kind="error">{error}</Notice> : null}

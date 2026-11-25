@@ -24,6 +24,7 @@ const schema = z.object({
   availableForOrder: z.boolean(),
   isFeatured: z.boolean(),
   isLaunch: z.boolean(),
+  readyToShip: z.boolean(),
   availabilityNote: z.string().optional(),
   orderNote: z.string().optional(),
 });
@@ -38,6 +39,7 @@ export function ProductFormPage() {
   const navigate = useNavigate();
   const [lists, setLists] = useState<Lists>(emptyLists);
   const [sizeIds, setSizeIds] = useState<string[]>([]);
+  const [stockSizeIds, setStockSizeIds] = useState<string[]>([]);
   const [files, setFiles] = useState<FileList | null>(null);
   const [images, setImages] = useState<Product['images']>([]);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -59,6 +61,7 @@ export function ProductFormPage() {
       availableForOrder: true,
       isFeatured: false,
       isLaunch: false,
+      readyToShip: false,
       availabilityNote: '',
       orderNote: '',
     },
@@ -105,17 +108,23 @@ export function ProductFormPage() {
         availableForOrder: product.availableForOrder,
         isFeatured: product.isFeatured,
         isLaunch: product.isLaunch,
+        readyToShip: product.readyToShip,
         availabilityNote: product.availabilityNote,
         orderNote: product.orderNote,
       });
       setSizeIds(product.sizes.map((size) => size.id));
+      setStockSizeIds(product.stockSizes.map((size) => size.id));
       setImages(product.images);
     }).catch((reason: Error) => setError(reason.message));
   }, [id]);
 
   async function submit(values: FormValues) {
     setError('');
-    const payload = { ...values, sizeIds };
+    if (values.readyToShip && stockSizeIds.length === 0) {
+      setError('Marque ao menos um tamanho na grade de pronta entrega.');
+      return;
+    }
+    const payload = { ...values, sizeIds, stockSizeIds: values.readyToShip ? stockSizeIds : [] };
     try {
       const saved = id
         ? (await api.patch<Product>(`/admin/products/${id}`, payload)).data
@@ -193,9 +202,10 @@ export function ProductFormPage() {
           <label><input type="checkbox" {...form.register('availableForOrder')} /> Disponível para encomenda</label>
           <label><input type="checkbox" {...form.register('isFeatured')} /> Destaque</label>
           <label><input type="checkbox" {...form.register('isLaunch')} /> Lançamento</label>
+          <label><input type="checkbox" {...form.register('readyToShip')} /> Pronta entrega</label>
         </Checks>
         <fieldset>
-          <legend>Tamanhos</legend>
+          <legend>Tamanhos para encomenda</legend>
           {lists.sizes.map((size) => (
             <label key={size.id}>
               <input
@@ -207,6 +217,21 @@ export function ProductFormPage() {
             </label>
           ))}
         </fieldset>
+        {form.watch('readyToShip') ? (
+          <fieldset>
+            <legend>Tamanhos em pronta entrega</legend>
+            {lists.sizes.map((size) => (
+              <label key={size.id}>
+                <input
+                  type="checkbox"
+                  checked={stockSizeIds.includes(size.id)}
+                  onChange={() => setStockSizeIds((current) => current.includes(size.id) ? current.filter((item) => item !== size.id) : [...current, size.id])}
+                />
+                {size.name}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <Field>Disponibilidade<TextArea {...form.register('availabilityNote')} /></Field>
         <Field>Observações da encomenda<TextArea {...form.register('orderNote')} /></Field>
         <Field>Imagens<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(event.target.files)} /></Field>

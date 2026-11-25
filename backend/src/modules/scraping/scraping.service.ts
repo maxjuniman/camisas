@@ -506,6 +506,9 @@ export class ScrapingService implements OnModuleInit {
     if (!dto.name || dto.price == null) {
       throw new BadRequestException('Informe nome e preço para aprovar.');
     }
+    if (dto.readyToShip && !dto.stockSizeIds?.length) {
+      throw new BadRequestException('Marque ao menos um tamanho na grade de pronta entrega.');
+    }
     const publicName = dto.name.trim();
 
     const slug = await this.uniqueSlug(publicName, item.linkedProductId ?? undefined);
@@ -526,6 +529,7 @@ export class ScrapingService implements OnModuleInit {
       availableForOrder: dto.availableForOrder ?? true,
       isFeatured: dto.isFeatured ?? false,
       isLaunch: dto.isLaunch ?? false,
+      readyToShip: dto.readyToShip ?? false,
       availabilityNote: dto.availabilityNote?.trim() ?? '',
       orderNote: dto.orderNote?.trim() ?? '',
       sourceUrl: item.linkedProduct?.sourceUrl ?? item.sourceUrl,
@@ -546,9 +550,15 @@ export class ScrapingService implements OnModuleInit {
         : await tx.product.create({ data: commercial });
 
       await tx.productSize.deleteMany({ where: { productId: saved.id } });
+      await tx.productStockSize.deleteMany({ where: { productId: saved.id } });
       if (dto.sizeIds?.length) {
         await tx.productSize.createMany({
           data: dto.sizeIds.map((sizeId) => ({ productId: saved.id, sizeId })),
+        });
+      }
+      if (dto.readyToShip && dto.stockSizeIds?.length) {
+        await tx.productStockSize.createMany({
+          data: dto.stockSizeIds.map((sizeId) => ({ productId: saved.id, sizeId })),
         });
       }
 

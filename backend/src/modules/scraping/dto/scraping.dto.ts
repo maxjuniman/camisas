@@ -111,6 +111,11 @@ export class ReviewDto {
   sizeIds?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  stockSizeIds?: string[];
+
+  @IsOptional()
   @IsBoolean()
   importImages?: boolean;
 
@@ -129,6 +134,10 @@ export class ReviewDto {
   @IsOptional()
   @IsBoolean()
   isLaunch?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  readyToShip?: boolean;
 
   @IsOptional()
   @IsString()

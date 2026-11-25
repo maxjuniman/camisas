@@ -68,6 +68,11 @@ export class UpsertProductDto {
   sizeIds?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  stockSizeIds?: string[];
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -82,6 +87,10 @@ export class UpsertProductDto {
   @IsOptional()
   @IsBoolean()
   isLaunch?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  readyToShip?: boolean;
 
   @IsOptional()
   @IsString()

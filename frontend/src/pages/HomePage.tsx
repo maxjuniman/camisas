@@ -20,6 +20,7 @@ type Division = {
 };
 
 type HomeData = {
+  ready: Product[];
   featured: Product[];
   launches: Product[];
   recent: Product[];
@@ -58,6 +59,14 @@ export function HomePage() {
       </Hero>
       <Wrap>
         {error ? <p>{error}</p> : null}
+        <Block>
+          <SectionHead>
+            <SectionTitle>Pronta entrega</SectionTitle>
+            <More to="/catalogo?ready=1">Ver todas</More>
+          </SectionHead>
+          {data && data.ready.length === 0 ? <Quiet>As peças em pronta entrega aparecem aqui quando forem marcadas no painel.</Quiet> : null}
+          <Grid>{data?.ready.map((product) => <ProductCard key={product.id} product={product} />)}</Grid>
+        </Block>
         <Block>
           <SectionTitle>Destaques</SectionTitle>
           {data && data.featured.length === 0 ? <Quiet>Nenhum destaque publicado ainda.</Quiet> : null}
@@ -145,6 +154,14 @@ const Jersey = styled.div`
   @media (max-width: 800px) { display: none; }
 `;
 const Block = styled.section`margin-top: 56px; display: grid; gap: 18px;`;
+const SectionHead = styled.div`display: flex; align-items: end; justify-content: space-between; gap: 16px;`;
+const More = styled(Link)`
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 13px;
+  border-bottom: 1px solid ${({ theme }) => theme.ink};
+  padding-bottom: 2px;
+`;
 const EmptyNote = styled.p`color: ${({ theme }) => theme.muted};`;
 const DivisionList = styled.div`display: grid; gap: 28px;`;
 const SportLink = styled(Link)`

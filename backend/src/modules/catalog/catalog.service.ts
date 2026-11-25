@@ -14,6 +14,7 @@ type CatalogQuery = {
   minPrice?: number;
   maxPrice?: number;
   sort?: 'price_asc' | 'price_desc' | 'newest' | 'name';
+  ready?: boolean;
   page?: number;
   pageSize?: number;
 };
@@ -51,7 +52,13 @@ export class CatalogService {
 
   async home() {
     const where = publicProductWhere;
-    const [featured, launches, recent, divisions] = await Promise.all([
+    const [ready, featured, launches, recent, divisions] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { ...where, readyToShip: true },
+        include: productInclude,
+        orderBy: { updatedAt: 'desc' },
+        take: 8,
+      }),
       this.prisma.product.findMany({
         where: { ...where, isFeatured: true },
         include: productInclude,
@@ -74,6 +81,7 @@ export class CatalogService {
     ]);
 
     return {
+      ready: ready.map(serializeProduct),
       featured: featured.map(serializeProduct),
       launches: launches.map(serializeProduct),
       recent: recent.map(serializeProduct),
@@ -174,6 +182,7 @@ export class CatalogService {
     this.pushSlugs(and, 'category', query.categories);
     const sizes = split(query.sizes);
     if (sizes.length) and.push({ sizes: { some: { size: { slug: { in: sizes }, isActive: true } } } });
+    if (query.ready) and.push({ readyToShip: true });
     if (query.minPrice != null || query.maxPrice != null) {
       and.push({
         price: {

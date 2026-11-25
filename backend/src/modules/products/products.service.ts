@@ -39,12 +39,14 @@ export class ProductsService {
   }
 
   async create(dto: UpsertProductDto) {
+    this.assertStock(dto);
     const slug = await this.uniqueSlug(dto.name);
     const product = await this.prisma.product.create({
       data: {
         ...this.data(dto),
         slug,
         sizes: { create: (dto.sizeIds ?? []).map((sizeId) => ({ sizeId })) },
+        stockSizes: { create: this.stockRows(dto) },
       },
       include: productInclude,
     });
@@ -52,16 +54,19 @@ export class ProductsService {
   }
 
   async update(id: string, dto: UpsertProductDto) {
+    this.assertStock(dto);
     await this.get(id);
     const slug = await this.uniqueSlug(dto.name, id);
     const product = await this.prisma.$transaction(async (tx) => {
       await tx.productSize.deleteMany({ where: { productId: id } });
+      await tx.productStockSize.deleteMany({ where: { productId: id } });
       return tx.product.update({
         where: { id },
         data: {
           ...this.data(dto),
           slug,
           sizes: { create: (dto.sizeIds ?? []).map((sizeId) => ({ sizeId })) },
+          stockSizes: { create: this.stockRows(dto) },
         },
         include: productInclude,
       });
@@ -268,6 +273,17 @@ export class ProductsService {
     };
   }
 
+  private assertStock(dto: UpsertProductDto) {
+    if (dto.readyToShip && !dto.stockSizeIds?.length) {
+      throw new BadRequestException('Marque ao menos um tamanho na grade de pronta entrega.');
+    }
+  }
+
+  private stockRows(dto: UpsertProductDto) {
+    if (!dto.readyToShip) return [];
+    return (dto.stockSizeIds ?? []).map((sizeId) => ({ sizeId }));
+  }
+
   private data(dto: UpsertProductDto) {
     return {
       name: dto.name.trim(),
@@ -285,6 +301,7 @@ export class ProductsService {
       availableForOrder: dto.availableForOrder ?? true,
       isFeatured: dto.isFeatured ?? false,
       isLaunch: dto.isLaunch ?? false,
+      readyToShip: dto.readyToShip ?? false,
       availabilityNote: dto.availabilityNote?.trim() ?? '',
       orderNote: dto.orderNote?.trim() ?? '',
     };

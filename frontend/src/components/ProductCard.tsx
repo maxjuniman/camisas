@@ -5,12 +5,17 @@ import { formatPrice, orderMessage, whatsappLink } from '../services/whatsapp';
 import { Product, coverOf } from '../types';
 
 export function ProductCard({ product }: { product: Product }) {
-  const [size, setSize] = useState('');
+  const [pick, setPick] = useState<{ name: string; ready: boolean } | null>(null);
   const cover = coverOf(product);
   const hover = product.images.find((image) => image.id !== cover?.id);
-  const href = size
-    ? whatsappLink(orderMessage({ name: product.name, price: product.price, slug: product.slug, size }))
-    : `/produto/${product.slug}#encomenda`;
+  const stock = product.readyToShip ? product.stockSizes : [];
+  const href = pick
+    ? whatsappLink(orderMessage({ name: product.name, price: product.price, slug: product.slug, size: pick.name, ready: pick.ready }))
+    : `/produto/${product.slug}${stock.length ? '#pronta' : '#encomenda'}`;
+
+  function choose(name: string, ready: boolean) {
+    setPick((current) => (current?.name === name && current.ready === ready ? null : { name, ready }));
+  }
 
   return (
     <Card>
@@ -18,6 +23,7 @@ export function ProductCard({ product }: { product: Product }) {
         {cover ? <img src={cover.thumbUrl || cover.url} alt={product.name} /> : <Empty>Sem foto</Empty>}
         {hover ? <img className="alt" src={hover.thumbUrl || hover.url} alt="" /> : null}
         <Marks>
+          {product.readyToShip ? <span className="ready">Pronta entrega</span> : null}
           {product.isLaunch ? <span>Lançamento</span> : null}
           {product.isFeatured ? <span>Destaque</span> : null}
         </Marks>
@@ -27,20 +33,32 @@ export function ProductCard({ product }: { product: Product }) {
         <Name to={`/produto/${product.slug}`}>{product.name}</Name>
         <Line>{[product.category?.name, product.gender?.name].filter(Boolean).join(' · ')}</Line>
         <Price>{formatPrice(product.price)}</Price>
-        <Sizes>
-          {product.sizes.map((item) => (
-            <SizeButton
-              key={item.id}
-              type="button"
-              $on={size === item.name}
-              onClick={() => setSize((current) => (current === item.name ? '' : item.name))}
-            >
-              {item.name}
-            </SizeButton>
-          ))}
-        </Sizes>
-        <Order href={href} target={size ? '_blank' : undefined} rel={size ? 'noreferrer' : undefined}>
-          Fazer encomenda via WhatsApp
+        {stock.length ? (
+          <SizeGroup>
+            <SizeLabel>Pronta entrega</SizeLabel>
+            <Sizes>
+              {stock.map((item) => (
+                <SizeButton key={item.id} type="button" $on={pick?.ready === true && pick.name === item.name} onClick={() => choose(item.name, true)}>
+                  {item.name}
+                </SizeButton>
+              ))}
+            </Sizes>
+          </SizeGroup>
+        ) : null}
+        {product.sizes.length ? (
+          <SizeGroup>
+            <SizeLabel>Encomenda</SizeLabel>
+            <Sizes>
+              {product.sizes.map((item) => (
+                <SizeButton key={item.id} type="button" $on={pick?.ready === false && pick.name === item.name} onClick={() => choose(item.name, false)}>
+                  {item.name}
+                </SizeButton>
+              ))}
+            </Sizes>
+          </SizeGroup>
+        ) : null}
+        <Order href={href} target={pick ? '_blank' : undefined} rel={pick ? 'noreferrer' : undefined}>
+          {pick?.ready ? 'Reservar pronta entrega' : 'Fazer encomenda via WhatsApp'}
         </Order>
       </Meta>
     </Card>
@@ -85,6 +103,7 @@ const Marks = styled.div`
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
+  .ready { background: ${({ theme }) => theme.accent}; color: ${({ theme }) => theme.accentInk}; }
 `;
 
 const Meta = styled.div`display: grid; gap: 4px;`;
@@ -102,7 +121,9 @@ const Name = styled(Link)`
 `;
 const Line = styled.p`color: ${({ theme }) => theme.muted}; font-size: 14px;`;
 const Price = styled.strong`color: ${({ theme }) => theme.accent}; font-size: 18px;`;
-const Sizes = styled.div`display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;`;
+const SizeGroup = styled.div`display: grid; gap: 4px; margin-top: 6px;`;
+const SizeLabel = styled.p`font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: ${({ theme }) => theme.muted};`;
+const Sizes = styled.div`display: flex; flex-wrap: wrap; gap: 6px;`;
 const SizeButton = styled.button<{ $on: boolean }>`
   border: 1px solid ${({ theme, $on }) => ($on ? theme.accent : theme.line)};
   background: ${({ theme, $on }) => ($on ? theme.accent : 'transparent')};

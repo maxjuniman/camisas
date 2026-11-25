@@ -12,6 +12,7 @@ export function ProductPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [error, setError] = useState('');
   const [size, setSize] = useState('');
+  const [ready, setReady] = useState(false);
   const [photo, setPhoto] = useState(0);
 
   useEffect(() => {
@@ -29,9 +30,20 @@ export function ProductPage() {
   if (!product) return <Wrap><p>Carregando...</p></Wrap>;
 
   const image = product.images[photo] ?? product.images[0];
+  const stock = product.readyToShip ? product.stockSizes : [];
   const link = size
-    ? whatsappLink(orderMessage({ name: product.name, price: product.price, slug: product.slug, size }))
+    ? whatsappLink(orderMessage({ name: product.name, price: product.price, slug: product.slug, size, ready }))
     : undefined;
+
+  function choose(name: string, nextReady: boolean) {
+    if (size === name && ready === nextReady) {
+      setSize('');
+      setReady(false);
+      return;
+    }
+    setSize(name);
+    setReady(nextReady);
+  }
 
   return (
     <Wrap>
@@ -46,9 +58,10 @@ export function ProductPage() {
             ))}
           </Thumbs>
         </Gallery>
-        <Info id="encomenda">
+        <Info>
           <p>{[product.sport?.name, product.country?.name, product.team?.name].filter(Boolean).join(' · ')}</p>
           <h1>{product.name}</h1>
+          {product.readyToShip ? <Ready>Pronta entrega</Ready> : null}
           <Price>{formatPrice(product.price)}</Price>
           <Facts>
             <div><span>Esporte</span><strong>{product.sport?.name || '—'}</strong></div>
@@ -59,16 +72,30 @@ export function ProductPage() {
             <div><span>Temporada</span><strong>{product.season?.name || '—'}</strong></div>
           </Facts>
           <p>{product.description}</p>
-          <SizeLabel>Tamanho</SizeLabel>
-          <Sizes>
-            {product.sizes.map((item) => (
-              <Size key={item.id} type="button" $on={size === item.name} onClick={() => setSize(item.name)}>{item.name}</Size>
-            ))}
-          </Sizes>
+          {stock.length ? (
+            <div id="pronta">
+              <SizeLabel>Pronta entrega</SizeLabel>
+              <Sizes>
+                {stock.map((item) => (
+                  <Size key={item.id} type="button" $on={ready && size === item.name} onClick={() => choose(item.name, true)}>{item.name}</Size>
+                ))}
+              </Sizes>
+            </div>
+          ) : null}
+          {product.sizes.length ? (
+            <div id="encomenda">
+              <SizeLabel>Encomenda</SizeLabel>
+              <Sizes>
+                {product.sizes.map((item) => (
+                  <Size key={item.id} type="button" $on={!ready && size === item.name} onClick={() => choose(item.name, false)}>{item.name}</Size>
+                ))}
+              </Sizes>
+            </div>
+          ) : null}
           <Button as="a" href={link || undefined} aria-disabled={!size} $tone="accent" target="_blank" rel="noreferrer" onClick={(event) => { if (!size) event.preventDefault(); }}>
-            Fazer encomenda via WhatsApp
+            {ready ? 'Reservar pronta entrega via WhatsApp' : 'Fazer encomenda via WhatsApp'}
           </Button>
-          {!size ? <Hint>Selecione um tamanho para encomendar.</Hint> : null}
+          {!size ? <Hint>Selecione um tamanho para continuar.</Hint> : null}
           <Note>
             <strong>Disponibilidade.</strong> {product.availabilityNote || 'A disponibilidade é confirmada no WhatsApp.'}
           </Note>
@@ -108,6 +135,15 @@ const Info = styled.div`
   gap: 12px;
   h1 { font-family: ${({ theme }) => theme.display}; font-size: clamp(42px, 6vw, 68px); line-height: 0.9; text-transform: uppercase; }
   > p:first-child { letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; color: ${({ theme }) => theme.muted}; }
+`;
+const Ready = styled.p`
+  width: fit-content;
+  background: ${({ theme }) => theme.accent};
+  color: ${({ theme }) => theme.accentInk};
+  padding: 4px 8px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 `;
 const Price = styled.strong`font-size: 28px; color: ${({ theme }) => theme.accent};`;
 const Facts = styled.div`

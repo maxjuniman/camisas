@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { CatalogService } from './catalog.service';
 
 export class CatalogQueryDto {
@@ -45,6 +45,11 @@ export class CatalogQueryDto {
   @IsOptional()
   @IsIn(['price_asc', 'price_desc', 'newest', 'name'])
   sort?: 'price_asc' | 'price_desc' | 'newest' | 'name';
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  ready?: boolean;
 
   @IsOptional()
   @Type(() => Number)

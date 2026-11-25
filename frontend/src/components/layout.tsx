@@ -35,6 +35,7 @@ function Header() {
           <Brand to="/">{storeConfig.name}</Brand>
           <Nav $open={open}>
             <NavLink to="/catalogo">Catálogo</NavLink>
+            <NavLink to="/catalogo?ready=1">Pronta entrega</NavLink>
             <NavLink to="/catalogo?sports=futebol">Futebol</NavLink>
             <NavLink to="/catalogo?sports=basquete">Basquete</NavLink>
             <a href={contactLink()} target="_blank" rel="noreferrer">WhatsApp</a>
@@ -68,6 +69,7 @@ function Footer() {
           <div>
             <strong>Navegação</strong>
             <Link to="/catalogo">Catálogo</Link>
+            <Link to="/catalogo?ready=1">Pronta entrega</Link>
             <Link to="/admin/login">Área da loja</Link>
             <a href={contactLink()} target="_blank" rel="noreferrer">Falar no WhatsApp</a>
           </div>

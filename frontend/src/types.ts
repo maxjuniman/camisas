@@ -33,12 +33,14 @@ export type Product = {
   category: RefItem | null;
   season: RefItem | null;
   sizes: RefItem[];
+  stockSizes: RefItem[];
   images: ProductImage[];
   status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'IGNORED';
   isActive: boolean;
   availableForOrder: boolean;
   isFeatured: boolean;
   isLaunch: boolean;
+  readyToShip: boolean;
   availabilityNote: string;
   orderNote: string;
   sourceUrl: string | null;
