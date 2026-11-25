@@ -47,7 +47,7 @@ export function ProductPage() {
     <Wrap>
       <Layout>
         <Gallery>
-          {image ? <img src={image.url} alt={product.name} /> : <Fallback>Sem foto</Fallback>}
+          {image ? <Main src={image.url} alt={product.name} /> : <Fallback>Sem foto</Fallback>}
           <Thumbs>
             {product.images.map((item, index) => (
               <button key={item.id} type="button" onClick={() => setPhoto(index)}>
@@ -57,10 +57,14 @@ export function ProductPage() {
           </Thumbs>
         </Gallery>
         <Info>
-          <p>{[product.sport?.name, product.country?.name, product.team?.name].filter(Boolean).join(' · ')}</p>
-          <h1>{product.name}</h1>
-          {product.readyToShip ? <Ready>Pronta entrega</Ready> : null}
-          <Price>{formatPrice(product.price)}</Price>
+          <Head>
+            <Eyebrow>{[product.sport?.name, product.country?.name, product.team?.name].filter(Boolean).join(' · ')}</Eyebrow>
+            <h1>{product.name}</h1>
+            <PriceRow>
+              {product.readyToShip ? <Ready>Pronta entrega</Ready> : null}
+              <Price>{formatPrice(product.price)}</Price>
+            </PriceRow>
+          </Head>
           <Facts>
             <div><span>Esporte</span><strong>{product.sport?.name || '—'}</strong></div>
             <div><span>País</span><strong>{product.country?.name || '—'}</strong></div>
@@ -69,37 +73,41 @@ export function ProductPage() {
             <div><span>Sexo</span><strong>{product.gender?.name || '—'}</strong></div>
             <div><span>Temporada</span><strong>{product.season?.name || '—'}</strong></div>
           </Facts>
-          <p>{product.description}</p>
-          {stock.length ? (
-            <div id="pronta">
-              <SizeLabel>Pronta entrega</SizeLabel>
-              <Sizes>
-                {stock.map((item) => (
-                  <Size key={item.id} type="button" $on={ready && size === item.name} onClick={() => choose(item.name, true)}>{item.name}</Size>
-                ))}
-              </Sizes>
-            </div>
-          ) : null}
-          {product.sizes.length ? (
-            <div id="encomenda">
-              <SizeLabel>Encomenda</SizeLabel>
-              <Sizes>
-                {product.sizes.map((item) => (
-                  <Size key={item.id} type="button" $on={!ready && size === item.name} onClick={() => choose(item.name, false)}>{item.name}</Size>
-                ))}
-              </Sizes>
-            </div>
-          ) : null}
-          <Button as="a" href={link} $tone="accent" target="_blank" rel="noreferrer">
-            {ready ? 'Reservar pronta entrega via WhatsApp' : 'Fazer encomenda via WhatsApp'}
-          </Button>
-          <Hint>{size ? 'O tamanho escolhido entra na mensagem.' : 'Se quiser, escolha um tamanho antes de chamar no WhatsApp.'}</Hint>
-          <Note>
-            <strong>Disponibilidade.</strong> {product.availabilityNote || 'A disponibilidade é confirmada no WhatsApp.'}
-          </Note>
-          <Note>
-            <strong>Encomenda.</strong> {product.orderNote || 'Não há pagamento nesta página. O pedido é combinado na conversa.'}
-          </Note>
+          {product.description ? <Description>{product.description}</Description> : null}
+          <Buy>
+            {stock.length ? (
+              <div id="pronta">
+                <SizeLabel>Pronta entrega</SizeLabel>
+                <Sizes>
+                  {stock.map((item) => (
+                    <Size key={item.id} type="button" $on={ready && size === item.name} onClick={() => choose(item.name, true)}>{item.name}</Size>
+                  ))}
+                </Sizes>
+              </div>
+            ) : null}
+            {product.sizes.length ? (
+              <div id="encomenda">
+                <SizeLabel>Encomenda</SizeLabel>
+                <Sizes>
+                  {product.sizes.map((item) => (
+                    <Size key={item.id} type="button" $on={!ready && size === item.name} onClick={() => choose(item.name, false)}>{item.name}</Size>
+                  ))}
+                </Sizes>
+              </div>
+            ) : null}
+            <Button as="a" href={link} $tone="accent" target="_blank" rel="noreferrer">
+              {ready ? 'Reservar pronta entrega via WhatsApp' : 'Fazer encomenda via WhatsApp'}
+            </Button>
+            <Hint>{size ? 'O tamanho escolhido entra na mensagem.' : 'Se quiser, escolha um tamanho antes de chamar no WhatsApp.'}</Hint>
+          </Buy>
+          <Notes>
+            <Note>
+              <strong>Disponibilidade.</strong> {product.availabilityNote || 'A disponibilidade é confirmada no WhatsApp.'}
+            </Note>
+            <Note>
+              <strong>Encomenda.</strong> {product.orderNote || 'Não há pagamento nesta página. O pedido é combinado na conversa.'}
+            </Note>
+          </Notes>
         </Info>
       </Layout>
     </Wrap>
@@ -108,12 +116,26 @@ export function ProductPage() {
 
 const Layout = styled.div`
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 36px;
-  padding: 28px 0;
-  @media (max-width: 860px) { grid-template-columns: 1fr; }
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 460px);
+  gap: 56px;
+  align-items: start;
+  padding: 36px 0 72px;
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
 `;
-const Gallery = styled.div`display: grid; gap: 10px; align-content: start;`;
+const Gallery = styled.div`
+  display: grid;
+  gap: 14px;
+  align-content: start;
+`;
+const Main = styled.img`
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  background: ${({ theme }) => theme.inkSoft};
+`;
 const Fallback = styled.div`
   aspect-ratio: 4 / 5;
   display: grid;
@@ -123,42 +145,100 @@ const Fallback = styled.div`
 `;
 const Thumbs = styled.div`
   display: flex;
-  gap: 8px;
-  button { border: 0; padding: 0; background: none; cursor: pointer; width: 72px; }
-  img { width: 72px; height: 88px; object-fit: cover; }
+  flex-wrap: wrap;
+  gap: 10px;
+  button { border: 0; padding: 0; background: none; cursor: pointer; width: 76px; }
+  img { width: 76px; height: 96px; object-fit: cover; }
 `;
 const Info = styled.div`
   display: grid;
   align-content: start;
-  gap: 12px;
-  h1 { font-family: ${({ theme }) => theme.display}; font-size: clamp(42px, 6vw, 68px); line-height: 0.9; text-transform: uppercase; }
-  > p:first-child { letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; color: ${({ theme }) => theme.muted}; }
+  gap: 28px;
+  min-width: 0;
+`;
+const Head = styled.div`
+  display: grid;
+  gap: 14px;
+  h1 {
+    margin: 0;
+    font-family: ${({ theme }) => theme.display};
+    font-size: clamp(36px, 4vw, 52px);
+    font-weight: 600;
+    line-height: 0.98;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+`;
+const Eyebrow = styled.p`
+  margin: 0;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: ${({ theme }) => theme.muted};
+`;
+const PriceRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
 `;
 const Ready = styled.p`
+  margin: 0;
   width: fit-content;
   background: ${({ theme }) => theme.accent};
   color: ${({ theme }) => theme.accentInk};
-  padding: 4px 8px;
+  padding: 6px 10px;
   font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 `;
-const Price = styled.strong`font-size: 28px; color: ${({ theme }) => theme.accent};`;
+const Price = styled.strong`font-size: 32px; color: ${({ theme }) => theme.accent};`;
 const Facts = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  span { display: block; color: ${({ theme }) => theme.muted}; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 16px;
+  padding: 18px 0;
+  border-top: 1px solid ${({ theme }) => theme.line};
+  border-bottom: 1px solid ${({ theme }) => theme.line};
+  span { display: block; margin-bottom: 4px; color: ${({ theme }) => theme.muted}; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  strong { font-size: 16px; font-weight: 600; }
+  @media (max-width: 520px) { grid-template-columns: 1fr 1fr; }
 `;
-const SizeLabel = styled.p`font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;`;
-const Sizes = styled.div`display: flex; flex-wrap: wrap; gap: 8px;`;
+const Description = styled.p`
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+`;
+const Buy = styled.div`
+  display: grid;
+  gap: 22px;
+  a { justify-self: start; padding: 14px 18px; }
+`;
+const SizeLabel = styled.p`
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+`;
+const Sizes = styled.div`display: flex; flex-wrap: wrap; gap: 10px;`;
 const Size = styled.button<{ $on: boolean }>`
-  min-width: 48px;
-  padding: 10px 12px;
+  min-width: 52px;
+  padding: 12px 14px;
   border: 1px solid ${({ theme, $on }) => ($on ? theme.accent : theme.ink)};
   background: ${({ theme, $on }) => ($on ? theme.accent : 'transparent')};
   color: ${({ theme, $on }) => ($on ? theme.accentInk : theme.ink)};
   cursor: pointer;
 `;
-const Hint = styled.p`color: ${({ theme }) => theme.muted}; font-size: 14px;`;
-const Note = styled.p`font-size: 14px; color: ${({ theme }) => theme.muted}; strong { color: ${({ theme }) => theme.text}; }`;
+const Hint = styled.p`margin: 0; color: ${({ theme }) => theme.muted}; font-size: 14px; line-height: 1.4;`;
+const Notes = styled.div`
+  display: grid;
+  gap: 12px;
+  padding-top: 8px;
+`;
+const Note = styled.p`
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: ${({ theme }) => theme.muted};
+  strong { color: ${({ theme }) => theme.text}; }
+`;
