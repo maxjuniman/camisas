@@ -48,7 +48,7 @@ export const Notice = styled.p<{ $kind?: 'error' | 'ok' }>`
   margin: 0;
   padding: 10px 12px;
   background: ${({ $kind }) => ($kind === 'error' ? '#F8E4E1' : '#E5F3EB')};
-  color: ${({ theme, $kind }) => ($kind === 'error' ? theme.accent : theme.good)};
+  color: ${({ theme, $kind }) => ($kind === 'error' ? theme.danger : theme.good)};
 `;
 
 export const Grid = styled.div`

@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { Button, Field, Input, Notice } from '../../components/ui';
+import logo from '../../img/logo.jpeg';
 import { storeConfig } from '../../config/store';
 import { api } from '../../services/api';
 import { useAuth } from '../../auth/AuthContext';
@@ -30,7 +31,7 @@ export function LoginPage() {
   return (
     <Screen>
       <form onSubmit={submit}>
-        <p>{storeConfig.name}</p>
+        <img src={logo} alt={storeConfig.name} />
         <h1>Entrar no painel</h1>
         <Field>E-mail<Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
         <Field>Senha<Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} /></Field>
@@ -48,7 +49,8 @@ const Screen = styled.main`
   background: ${({ theme }) => theme.ink};
   color: ${({ theme }) => theme.paper};
   form { width: min(420px, calc(100% - 32px)); display: grid; gap: 14px; }
+  form label { color: #D6DEE8; }
   h1 { font-family: ${({ theme }) => theme.display}; font-size: 56px; text-transform: uppercase; line-height: 0.9; }
-  p { letter-spacing: 0.14em; text-transform: uppercase; color: ${({ theme }) => theme.accent}; }
+  img { width: 180px; background: ${({ theme }) => theme.white}; }
   input { background: transparent; color: ${({ theme }) => theme.paper}; }
 `;

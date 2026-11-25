@@ -118,7 +118,7 @@ const Name = styled(Link)`
   text-transform: uppercase;
 `;
 const Line = styled.p`color: ${({ theme }) => theme.muted}; font-size: 14px;`;
-const Price = styled.strong`color: ${({ theme }) => theme.accent}; font-size: 18px;`;
+const Price = styled.strong`color: ${({ theme }) => theme.ink}; font-size: 18px;`;
 const SizeGroup = styled.div`display: grid; gap: 4px; margin-top: 6px;`;
 const SizeLabel = styled.p`font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: ${({ theme }) => theme.muted};`;
 const Sizes = styled.div`display: flex; flex-wrap: wrap; gap: 6px;`;

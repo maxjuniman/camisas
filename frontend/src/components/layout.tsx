@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import logo from '../img/logo.jpeg';
 import { storeConfig } from '../config/store';
 import { contactLink } from '../services/whatsapp';
 import { Wrap } from './ui';
@@ -32,7 +33,9 @@ function Header() {
     <Bar>
       <Wrap>
         <Row>
-          <Brand to="/">{storeConfig.name}</Brand>
+          <Brand to="/" aria-label={storeConfig.name}>
+            <img src={logo} alt="" />
+          </Brand>
           <Nav $open={open}>
             <NavLink to="/catalogo">Catálogo</NavLink>
             <NavLink to="/catalogo?ready=1">Pronta entrega</NavLink>
@@ -63,8 +66,8 @@ function Footer() {
       <Wrap>
         <FootGrid>
           <div>
-            <Brand to="/">{storeConfig.name}</Brand>
-            <p>Encomendas de camisas esportivas pelo WhatsApp. Sem carrinho e sem pagamento no site.</p>
+            <FooterMark to="/">{storeConfig.name}</FooterMark>
+            <p>Futebol, NBA e NFL. Encomendas pelo WhatsApp, sem carrinho e sem pagamento no site.</p>
           </div>
           <div>
             <strong>Navegação</strong>
@@ -83,7 +86,7 @@ const Bar = styled.header`
   position: sticky;
   top: 0;
   z-index: 10;
-  background: ${({ theme }) => theme.paper};
+  background: ${({ theme }) => theme.white};
   border-bottom: 1px solid ${({ theme }) => theme.line};
   &::before {
     content: '';
@@ -101,11 +104,18 @@ const Row = styled.div`
 `;
 
 const Brand = styled(Link)`
+  display: flex;
+  align-items: center;
+  img { height: 72px; width: auto; }
+`;
+
+const FooterMark = styled(Link)`
   font-family: ${({ theme }) => theme.display};
   font-size: 32px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 700;
+  color: ${({ theme }) => theme.accent};
 `;
 
 const Nav = styled.nav<{ $open: boolean }>`
@@ -114,7 +124,8 @@ const Nav = styled.nav<{ $open: boolean }>`
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  a.active { color: ${({ theme }) => theme.accent}; }
+  white-space: nowrap;
+  a.active { color: ${({ theme }) => theme.ink}; box-shadow: inset 0 -2px 0 ${({ theme }) => theme.accent}; }
   @media (max-width: 860px) {
     display: ${({ $open }) => ($open ? 'flex' : 'none')};
     position: absolute;
@@ -159,7 +170,7 @@ const Foot = styled.footer`
   color: ${({ theme }) => theme.paper};
   padding: 48px 0;
   a { display: block; color: ${({ theme }) => theme.paper}; margin-top: 8px; }
-  p { max-width: 360px; color: #d9d0c4; }
+  p { max-width: 360px; color: #D6DEE8; }
 `;
 
 const FootGrid = styled.div`

@@ -192,7 +192,7 @@ const Ready = styled.p`
   letter-spacing: 0.1em;
   text-transform: uppercase;
 `;
-const Price = styled.strong`font-size: 32px; color: ${({ theme }) => theme.accent};`;
+const Price = styled.strong`font-size: 32px; color: ${({ theme }) => theme.ink};`;
 const Facts = styled.div`
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

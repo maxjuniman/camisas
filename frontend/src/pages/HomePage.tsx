@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components';
+import logo from '../img/logo.jpeg';
 import { ProductCard } from '../components/ProductCard';
 import { Grid, SectionTitle, Wrap } from '../components/ui';
 import { storeConfig } from '../config/store';
@@ -42,18 +43,14 @@ export function HomePage() {
         <Wrap>
           <HeroGrid>
             <div>
-              <Eyebrow>Encomenda direta</Eyebrow>
+              <Eyebrow>Futebol · NBA · NFL</Eyebrow>
               <h1>A camisa do jogo, pronta para sair do vestiário.</h1>
               <p>Escolha o modelo e o tamanho. O pedido segue pelo WhatsApp, com prazo confirmado na conversa.</p>
               <HeroLink to="/catalogo">Ver catálogo</HeroLink>
             </div>
-            <Jersey aria-hidden="true">
-              <svg viewBox="0 0 240 280">
-                <path d="M40 48 78 28h84l38 20-22 36v150H62V84Z" fill="#F3EEE6" />
-                <path d="M108 28h24l14 34H94Z" fill="#121418" />
-                <path d="M62 92h116v18H62Z" fill="#D83A2C" />
-              </svg>
-            </Jersey>
+            <Mark>
+              <img src={logo} alt={storeConfig.name} />
+            </Mark>
           </HeroGrid>
         </Wrap>
       </Hero>
@@ -124,7 +121,7 @@ const Hero = styled.section`
     max-width: 740px;
     margin: 12px 0 16px;
   }
-  p { max-width: 460px; color: #d9d0c4; }
+  p { max-width: 460px; color: #D6DEE8; }
 `;
 const HeroGrid = styled.div`
   display: grid;
@@ -149,8 +146,11 @@ const HeroLink = styled(Link)`
   text-transform: uppercase;
   font-size: 13px;
 `;
-const Jersey = styled.div`
-  svg { width: min(280px, 100%); }
+const Mark = styled.div`
+  justify-self: end;
+  background: ${({ theme }) => theme.white};
+  padding: 12px;
+  img { width: min(280px, 100%); display: block; }
   @media (max-width: 800px) { display: none; }
 `;
 const Block = styled.section`margin-top: 56px; display: grid; gap: 18px;`;

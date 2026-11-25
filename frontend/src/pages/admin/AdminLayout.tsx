@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Outlet } from 'react-router-dom';
 import styled from 'styled-components';
+import logo from '../../img/logo.jpeg';
 import { useAuth } from '../../auth/AuthContext';
 
 const links = [
@@ -17,7 +18,7 @@ export function AdminLayout() {
   return (
     <Shell>
       <Side>
-        <strong>Loja</strong>
+        <img src={logo} alt="Camisas Esportivas" />
         {links.map(([to, label]) => (
           <NavLink key={to} to={to} end={to === '/admin'}>{label}</NavLink>
         ))}
@@ -43,10 +44,10 @@ const Side = styled.aside`
   display: flex;
   flex-direction: column;
   gap: 12px;
-  strong { font-family: ${({ theme }) => theme.display}; font-size: 32px; letter-spacing: 0.08em; text-transform: uppercase; }
-  a { color: #d9d0c4; }
-  a.active { color: white; }
-  button { margin-top: auto; background: none; border: 1px solid #d9d0c4; color: white; padding: 8px; cursor: pointer; }
+  img { width: 148px; background: ${({ theme }) => theme.white}; margin-bottom: 8px; }
+  a { color: #D6DEE8; }
+  a.active { color: ${({ theme }) => theme.accent}; }
+  button { margin-top: auto; background: none; border: 1px solid #D6DEE8; color: white; padding: 8px; cursor: pointer; }
   @media (max-width: 800px) { button { margin-top: 0; } }
 `;
 const Content = styled.main`
