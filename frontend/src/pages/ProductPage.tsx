@@ -31,9 +31,7 @@ export function ProductPage() {
 
   const image = product.images[photo] ?? product.images[0];
   const stock = product.readyToShip ? product.stockSizes : [];
-  const link = size
-    ? whatsappLink(orderMessage({ name: product.name, price: product.price, slug: product.slug, size, ready }))
-    : undefined;
+  const link = whatsappLink(orderMessage({ name: product.name, size: size || undefined }));
 
   function choose(name: string, nextReady: boolean) {
     if (size === name && ready === nextReady) {
@@ -92,10 +90,10 @@ export function ProductPage() {
               </Sizes>
             </div>
           ) : null}
-          <Button as="a" href={link || undefined} aria-disabled={!size} $tone="accent" target="_blank" rel="noreferrer" onClick={(event) => { if (!size) event.preventDefault(); }}>
+          <Button as="a" href={link} $tone="accent" target="_blank" rel="noreferrer">
             {ready ? 'Reservar pronta entrega via WhatsApp' : 'Fazer encomenda via WhatsApp'}
           </Button>
-          {!size ? <Hint>Selecione um tamanho para continuar.</Hint> : null}
+          <Hint>{size ? 'O tamanho escolhido entra na mensagem.' : 'Se quiser, escolha um tamanho antes de chamar no WhatsApp.'}</Hint>
           <Note>
             <strong>Disponibilidade.</strong> {product.availabilityNote || 'A disponibilidade é confirmada no WhatsApp.'}
           </Note>

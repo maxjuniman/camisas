@@ -9,9 +9,7 @@ export function ProductCard({ product }: { product: Product }) {
   const cover = coverOf(product);
   const hover = product.images.find((image) => image.id !== cover?.id);
   const stock = product.readyToShip ? product.stockSizes : [];
-  const href = pick
-    ? whatsappLink(orderMessage({ name: product.name, price: product.price, slug: product.slug, size: pick.name, ready: pick.ready }))
-    : `/produto/${product.slug}${stock.length ? '#pronta' : '#encomenda'}`;
+  const href = whatsappLink(orderMessage({ name: product.name, size: pick?.name }));
 
   function choose(name: string, ready: boolean) {
     setPick((current) => (current?.name === name && current.ready === ready ? null : { name, ready }));
@@ -57,7 +55,7 @@ export function ProductCard({ product }: { product: Product }) {
             </Sizes>
           </SizeGroup>
         ) : null}
-        <Order href={href} target={pick ? '_blank' : undefined} rel={pick ? 'noreferrer' : undefined}>
+        <Order href={href} target="_blank" rel="noreferrer">
           {pick?.ready ? 'Reservar pronta entrega' : 'Fazer encomenda via WhatsApp'}
         </Order>
       </Meta>
