@@ -104,11 +104,9 @@ const Row = styled.div`
 `;
 
 const Brand = styled(Link)`
-  display: grid;
-  place-items: center;
-  height: 76px;
-  overflow: hidden;
-  img { height: 128px; width: auto; }
+  display: flex;
+  align-items: center;
+  img { height: 96px; width: auto; }
 `;
 
 const FooterMark = styled(Link)`
